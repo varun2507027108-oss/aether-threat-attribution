@@ -9,7 +9,7 @@ Validates:
 6. SSRF defense (blocking 127.0.0.1, RFC 1918 private subnets, cloud metadata 169.254.169.254).
 7. Strict input validation (malformed IDs, invalid PGP patterns, out-of-range weights).
 8. Safe error handling (500 response contains incident_id without SQL/traceback leakage).
-9. Section 65B Audit trail generation and access control.
+9. Section 63, Bharatiya Sakshya Adhiniyam, 2023 (formerly s.65B, Indian Evidence Act, 1872) Audit trail generation and access control.
 """
 
 from __future__ import annotations
@@ -323,7 +323,7 @@ def test_rate_limiter_triggers_429_on_burst(client: TestClient):
 # ---------- 8. Audit Logging Verification Tests ---------- #
 
 def test_investigation_and_custody_create_audit_logs(client: TestClient):
-    """Forensic actions must automatically record Section 65B audit trail rows."""
+    """Forensic actions must automatically record Section 63, Bharatiya Sakshya Adhiniyam, 2023 (formerly s.65B, Indian Evidence Act, 1872) audit trail rows."""
     # 1. Start investigation
     inv_payload = {
         "case_name": "Audit Verification Op",

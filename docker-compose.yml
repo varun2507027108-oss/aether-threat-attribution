@@ -18,6 +18,13 @@ services:
       timeout: 5s
       retries: 10
 
+  tor:
+    image: peterdavehello/tor-socks-proxy:latest
+    container_name: aether-tor
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:9050:9050"
+
   api:
     build:
       context: ./aether-backend
@@ -28,11 +35,15 @@ services:
       AETHER_REQUIRE_AUTH: ${AETHER_REQUIRE_AUTH:-true}
       ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-http://localhost:3000,http://127.0.0.1:3000}
       ENVIRONMENT: ${ENVIRONMENT:-production}
+      AETHER_TOR_SOCKS_URL: ${AETHER_TOR_SOCKS_URL:-socks5://tor:9050}
+      AETHER_ACTIVE_PROBE_ENABLED: ${AETHER_ACTIVE_PROBE_ENABLED:-false}
     ports:
       - "127.0.0.1:8000:8000"
     depends_on:
       postgres:
         condition: service_healthy
+      tor:
+        condition: service_started
 
 volumes:
   aether_pg_data:

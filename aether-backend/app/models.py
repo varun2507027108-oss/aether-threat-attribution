@@ -32,6 +32,9 @@ class Case(Base):
     custody: Mapped[list["CustodyRow"]] = relationship(
         back_populates="case", cascade="all, delete-orphan", order_by="CustodyRow.seq"
     )
+    checkpoints: Mapped[list["CustodyCheckpoint"]] = relationship(
+        back_populates="case", cascade="all, delete-orphan", order_by="CustodyCheckpoint.id"
+    )
     evidence_records: Mapped[list["Evidence"]] = relationship(
         back_populates="case", cascade="all, delete-orphan", order_by="Evidence.id"
     )
@@ -55,8 +58,25 @@ class CustodyRow(Base):
     action: Mapped[str] = mapped_column(Text)
     prev_hash: Mapped[str] = mapped_column(String(64))
     entry_hash: Mapped[str] = mapped_column(String(64))
+    signature: Mapped[str | None] = mapped_column(Text, nullable=True, default=None)
+    key_id: Mapped[str | None] = mapped_column(String(64), nullable=True, default=None)
 
     case: Mapped[Case] = relationship(back_populates="custody")
+
+
+class CustodyCheckpoint(Base):
+    """Periodic or external cryptographic anchor checkpoint for custody verification."""
+    __tablename__ = "custody_checkpoints"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    case_id: Mapped[int] = mapped_column(ForeignKey("cases.id", ondelete="CASCADE"), index=True)
+    seq: Mapped[int] = mapped_column(Integer)
+    tip_hash: Mapped[str] = mapped_column(String(64))
+    anchor_type: Mapped[str] = mapped_column(String(32), default="internal")  # 'internal' | 'rfc3161'
+    anchor_token: Mapped[str | None] = mapped_column(Text, nullable=True, default=None)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+
+    case: Mapped[Case] = relationship(back_populates="checkpoints")
 
 
 class Evidence(Base):

@@ -6,7 +6,7 @@ Implements:
 3. Request payload transmission limits (2MB protection against memory DoS).
 4. Sliding-window in-memory IP rate limiter with auto-eviction of expired records.
 5. SSRF and private-network target sanitization (blocking RFC 1918, loopback, and cloud metadata).
-6. Centralized forensic audit logger for Section 65B statutory compliance.
+6. Centralized forensic audit logger for Section 63, Bharatiya Sakshya Adhiniyam, 2023 (formerly s.65B, Indian Evidence Act, 1872) statutory compliance.
 """
 
 from __future__ import annotations
@@ -339,7 +339,7 @@ def record_audit_log(
     case_id: int | None = None,
     details: dict | None = None,
 ) -> AuditLog:
-    """Record an investigator action to the Section 65B forensic audit log."""
+    """Record an investigator action to the Section 63, Bharatiya Sakshya Adhiniyam, 2023 (formerly s.65B, Indian Evidence Act, 1872) forensic audit log."""
     ts = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
     log_entry = AuditLog(
         case_id=case_id,

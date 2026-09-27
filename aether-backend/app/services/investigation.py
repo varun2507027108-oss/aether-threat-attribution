@@ -31,6 +31,7 @@ from sqlalchemy.orm import Session
 
 from app.models import AuditLog, Case, CustodyRow, Evidence, EvidenceCorrelation
 from app.schemas import InvestigationStartRequest, InvestigationResultOut, CaseOut
+from app.services.anchor import checkpoint_if_needed
 from app.services.custody import GENESIS_HASH, CustodyChain, CustodyEntry
 from app.services.diurnal import analyze_diurnal_activity
 from app.services.graph import EntityGraph, cluster_bitcoin_transactions
@@ -172,9 +173,12 @@ def run_full_investigation(payload: InvestigationStartRequest, db: Session) -> I
             action=entry.action,
             prev_hash=entry.prev_hash,
             entry_hash=entry.entry_hash,
+            signature=entry.signature,
+            key_id=entry.key_id,
         )
         db.add(row)
         custody_entries.append(row)
+        checkpoint_if_needed(db, case.id, row.seq, row.entry_hash)
         prev_hash = entry.entry_hash
         seq += 1
         return entry.entry_hash
@@ -683,7 +687,8 @@ def run_full_investigation(payload: InvestigationStartRequest, db: Session) -> I
     # Custody verification
     chain_rows = [
         {"seq": r.seq, "timestamp": r.timestamp, "actor": r.actor, "action": r.action,
-         "prev_hash": r.prev_hash, "entry_hash": r.entry_hash}
+         "prev_hash": r.prev_hash, "entry_hash": r.entry_hash,
+         "signature": r.signature, "key_id": r.key_id}
         for r in case.custody
     ]
     chain = CustodyChain.from_rows(chain_rows)

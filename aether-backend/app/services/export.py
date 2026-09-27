@@ -10,6 +10,7 @@ from __future__ import annotations
 import csv
 import io
 from datetime import datetime, timezone
+from typing import Any
 
 import stix2
 
@@ -127,16 +128,16 @@ def _defuse(cell: str) -> str:
 
 
 def build_csv(case: dict, extra_rows: list[list[str]] | None = None) -> str:
-    header = ["entity_type", "entity_value", "description", "source_stage", "confidence"]
+    header = ["entity_type", "entity_value", "description", "source_stage", "confidence", "signature", "key_id"]
     rows = [
-        ["evidence_id", case["evidence_id"], "Case reference", "case", ""],
-        ["threat_actor", case["actor_name"], "Suspected actor cluster", "stage_2", f"{case['confidence']}%"],
-        *[["alias", a, "Forum alias", "stage_2", ""] for a in case["aliases"]],
-        ["ipv4", case["origin_ip"], f"Discovered origin IP, {case['geo']}", "stage_1", "95%"],
-        ["asn", case["asn"], "Hosting provider of origin IP", "stage_1", ""],
-        ["pgp_fingerprint", case["pgp_fingerprint"], "40 character PGP fingerprint", "stage_2", "90%"],
-        ["btc_wallet", case["btc_root"], "Root of co-spent peel-chain cluster", "stage_2", "85%"],
-        ["sha256_seal", case["seal_hash"], "Digital hash seal of custody chain", "stage_3", ""],
+        ["evidence_id", case["evidence_id"], "Case reference", "case", "", "", ""],
+        ["threat_actor", case["actor_name"], "Suspected actor cluster", "stage_2", f"{case['confidence']}%", "", ""],
+        *[["alias", a, "Forum alias", "stage_2", "", "", ""] for a in case.get("aliases", [])],
+        ["ipv4", case["origin_ip"], f"Discovered origin IP, {case.get('geo', '')}", "stage_1", "95%", "", ""],
+        ["asn", case.get("asn", ""), "Hosting provider of origin IP", "stage_1", "", "", ""],
+        ["pgp_fingerprint", case.get("pgp_fingerprint", ""), "40 character PGP fingerprint", "stage_2", "90%", "", ""],
+        ["btc_wallet", case.get("btc_root", ""), "Root of co-spent peel-chain cluster", "stage_2", "85%", "", ""],
+        ["sha256_seal", case["seal_hash"], "Digital hash seal of custody chain", "stage_3", "", case.get("signature") or "", case.get("key_id") or ""],
     ]
     if extra_rows:
         rows.extend(extra_rows)
@@ -147,3 +148,32 @@ def build_csv(case: dict, extra_rows: list[list[str]] | None = None) -> str:
     for r in rows:
         writer.writerow([_defuse(c) for c in r])
     return "\ufeff" + buf.getvalue()
+
+
+def build_custody_csv(custody_rows: list[Any]) -> str:
+    """Build canonical CSV export for the custody ledger, compatible with verify.html.
+    
+    Columns: seq, timestamp_utc, operator, action, payload, prev_hash, hash, signature, key_id
+    All values sanitized against formula injection via _defuse.
+    """
+    header = ["seq", "timestamp_utc", "operator", "action", "payload", "prev_hash", "hash", "signature", "key_id"]
+    rows = []
+    for r in custody_rows:
+        seq = str(getattr(r, "seq", ""))
+        ts = str(getattr(r, "timestamp", ""))
+        operator = str(getattr(r, "actor", "") or getattr(r, "operator", ""))
+        action = str(getattr(r, "action", ""))
+        payload = str(getattr(r, "payload", "") or "")
+        prev_hash = str(getattr(r, "prev_hash", ""))
+        entry_hash = str(getattr(r, "entry_hash", "") or getattr(r, "hash", ""))
+        sig = str(getattr(r, "signature", "") or "")
+        key_id = str(getattr(r, "key_id", "") or "")
+        rows.append([seq, ts, operator, action, payload, prev_hash, entry_hash, sig, key_id])
+
+    buf = io.StringIO()
+    writer = csv.writer(buf, quoting=csv.QUOTE_ALL, lineterminator="\r\n")
+    writer.writerow(header)
+    for r in rows:
+        writer.writerow([_defuse(c) for c in r])
+    return "\ufeff" + buf.getvalue()
+

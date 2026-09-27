@@ -33,3 +33,19 @@ def client():
     app.dependency_overrides.clear()
     RateLimitMiddleware.reset_limits()
 
+
+@pytest.fixture()
+def db_session():
+    engine = create_engine(
+        "sqlite:///:memory:",
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
+    Base.metadata.create_all(bind=engine)
+    TestingSession = sessionmaker(bind=engine, autoflush=False, expire_on_commit=False)
+    session = TestingSession()
+    try:
+        yield session
+    finally:
+        session.close()
+

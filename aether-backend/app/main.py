@@ -107,7 +107,7 @@ def root() -> dict:
         "version": "1.1.0",
         "docs": "/docs",
         "health": "/api/health",
-        "compliance": "Section 65B Indian Evidence Act",
+        "compliance": "Section 63, Bharatiya Sakshya Adhiniyam, 2023 (formerly s.65B, Indian Evidence Act, 1872)",
     }
 
 
@@ -136,7 +136,7 @@ def get_audit_logs(
     db: Session = Depends(get_db),
     principal: InvestigatorPrincipal = Depends(verify_investigator_auth),
 ) -> list[AuditLog]:
-    """Retrieve immutable audit events for Section 65B judicial oversight."""
+    """Retrieve immutable audit events for Section 63, Bharatiya Sakshya Adhiniyam, 2023 (formerly s.65B, Indian Evidence Act, 1872) judicial oversight."""
     logs = db.execute(
         select(AuditLog).order_by(AuditLog.id.desc()).offset(offset).limit(min(limit, 500))
     ).scalars().all()

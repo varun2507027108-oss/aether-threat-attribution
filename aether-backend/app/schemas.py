@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import re
 from datetime import datetime
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, computed_field, field_validator
 
 
 # ---------- Regex Patterns for Input Validation ---------- #
@@ -56,6 +56,13 @@ class CustodyEntryOut(BaseModel):
     action: str
     prev_hash: str
     entry_hash: str
+    signature: str | None = None
+    key_id: str | None = None
+
+    @computed_field
+    @property
+    def signed(self) -> bool:
+        return bool(self.signature)
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -209,6 +216,12 @@ class InvestigationResultOut(BaseModel):
 
 class VerifyResult(BaseModel):
     valid: bool
-    broken_at_seq: int | None
-    entry_count: int
-    seal: str
+    broken_at_seq: int | None = None
+    entry_count: int = 0
+    seal: str = ""
+    hash_ok: bool = True
+    signature_ok: bool = True
+    last_checkpoint: dict | None = None
+    anchor_type: str = "internal"
+    failure_layer: str | None = None
+    signed_count: int = 0

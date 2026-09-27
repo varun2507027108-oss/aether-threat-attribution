@@ -115,7 +115,7 @@ def test_list_cases_and_get_investigation(client):
         "case_name": "Test Listing Case",
         "evidence_id": "AT-2026-0101",
         "actor_name": "TestActor",
-        "target": "example-threat-market.onion",
+        "target": "http://p4lx7e22kq6dreadmarket.onion",
         "target_type": "onion",
     })
 

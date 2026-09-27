@@ -23,6 +23,7 @@ from app.security import (
     record_audit_log,
     verify_investigator_auth,
 )
+from app.services.anchor import checkpoint_if_needed, get_last_checkpoint
 from app.services.custody import GENESIS_HASH, CustodyChain, CustodyEntry
 from app.services.investigation import run_full_investigation
 
@@ -175,19 +176,35 @@ def add_custody_entry(
     entry = CustodyEntry(seq=next_seq, timestamp=timestamp, actor=payload.actor, action=payload.action, prev_hash=prev_hash)
 
     row = CustodyRow(
-        case_id=case.id, seq=entry.seq, timestamp=entry.timestamp,
-        actor=entry.actor, action=entry.action, prev_hash=entry.prev_hash, entry_hash=entry.entry_hash,
+        case_id=case.id,
+        seq=entry.seq,
+        timestamp=entry.timestamp,
+        actor=entry.actor,
+        action=entry.action,
+        prev_hash=entry.prev_hash,
+        entry_hash=entry.entry_hash,
+        signature=entry.signature,
+        key_id=entry.key_id,
     )
     db.add(row)
     db.commit()
     db.refresh(row)
+
+    # Checkpoint to external anchor (or periodic internal anchor) if interval reached
+    checkpoint_if_needed(db, case.id, row.seq, row.entry_hash)
 
     record_audit_log(
         db=db,
         operator=principal.operator,
         action="APPEND_CUSTODY_BLOCK",
         case_id=case.id,
-        details={"seq": row.seq, "entry_hash": row.entry_hash, "actor": payload.actor},
+        details={
+            "seq": row.seq,
+            "entry_hash": row.entry_hash,
+            "actor": payload.actor,
+            "signed": bool(row.signature),
+            "key_id": row.key_id,
+        },
     )
 
     return row
@@ -201,20 +218,61 @@ def verify_custody_chain(
 ) -> VerifyResult:
     case = _get_case_or_404(db, evidence_id)
     rows = [
-        {"seq": r.seq, "timestamp": r.timestamp, "actor": r.actor, "action": r.action,
-         "prev_hash": r.prev_hash, "entry_hash": r.entry_hash}
+        {
+            "seq": r.seq,
+            "timestamp": r.timestamp,
+            "actor": r.actor,
+            "action": r.action,
+            "prev_hash": r.prev_hash,
+            "entry_hash": r.entry_hash,
+            "signature": r.signature,
+            "key_id": r.key_id,
+        }
         for r in case.custody
     ]
     chain = CustodyChain.from_rows(rows)
-    valid, broken_at = chain.verify()
+    verify_res = chain.verify()
     seal = chain.seal()
+
+    # Retrieve last checkpoint if present
+    last_cp = get_last_checkpoint(db, case.id)
+    cp_dict = None
+    anchor_type = "internal"
+    if last_cp is not None:
+        anchor_type = last_cp.anchor_type
+        cp_dict = {
+            "id": last_cp.id,
+            "seq": last_cp.seq,
+            "tip_hash": last_cp.tip_hash,
+            "anchor_type": last_cp.anchor_type,
+            "anchor_token": last_cp.anchor_token,
+            "created_at": last_cp.created_at.isoformat() if last_cp.created_at else None,
+        }
 
     record_audit_log(
         db=db,
         operator=principal.operator,
         action="VERIFY_CUSTODY_CHAIN",
         case_id=case.id,
-        details={"valid": valid, "entry_count": len(chain.entries), "seal": seal},
+        details={
+            "valid": verify_res.valid,
+            "hash_ok": verify_res.hash_ok,
+            "signature_ok": verify_res.signature_ok,
+            "entry_count": len(chain.entries),
+            "seal": seal,
+            "anchor_type": anchor_type,
+        },
     )
 
-    return VerifyResult(valid=valid, broken_at_seq=broken_at, entry_count=len(chain.entries), seal=seal)
+    return VerifyResult(
+        valid=verify_res.valid,
+        broken_at_seq=verify_res.broken_at_seq,
+        entry_count=len(chain.entries),
+        seal=seal,
+        hash_ok=verify_res.hash_ok,
+        signature_ok=verify_res.signature_ok,
+        last_checkpoint=cp_dict,
+        anchor_type=anchor_type,
+        failure_layer=verify_res.failure_layer,
+        signed_count=verify_res.signed_count,
+    )

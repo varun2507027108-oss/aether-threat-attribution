@@ -56,8 +56,8 @@ def test_csv_has_bom_header_and_rows():
     out = build_csv(CASE)
     assert out.startswith("\ufeff")
     rows = list(csv.reader(io.StringIO(out.lstrip("\ufeff"))))
-    assert rows[0] == ["entity_type", "entity_value", "description", "source_stage", "confidence"]
-    assert all(len(r) == 5 for r in rows)
+    assert rows[0] == ["entity_type", "entity_value", "description", "source_stage", "confidence", "signature", "key_id"]
+    assert all(len(r) == 7 for r in rows)
     flat = {c for r in rows for c in r}
     assert "185.220.101.42" in flat and CASE["seal_hash"] in flat
 

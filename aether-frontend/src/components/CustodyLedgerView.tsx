@@ -121,7 +121,7 @@ export const CustodyLedgerView: React.FC<CustodyLedgerViewProps> = ({
             </h2>
           </div>
           <p className="text-xs text-slate-400 mt-1">
-            Section 65B Indian Evidence Act compliant cryptographic audit ledger. Every action is
+            Section 63, Bharatiya Sakshya Adhiniyam, 2023 (formerly s.65B, Indian Evidence Act, 1872) compliant cryptographic audit ledger. Every action is
             SHA-256 linked.
           </p>
         </div>
@@ -311,7 +311,7 @@ export const CustodyLedgerView: React.FC<CustodyLedgerViewProps> = ({
 
             <p className="text-xs text-slate-400 mt-3 leading-relaxed">
               Export the complete tamper-evident chain of custody and attribution findings for
-              submission under Section 65B of the Indian Evidence Act.
+              submission under Section 63, Bharatiya Sakshya Adhiniyam, 2023 (formerly s.65B, Indian Evidence Act, 1872).
             </p>
 
             <div className="mt-4 space-y-2.5">
