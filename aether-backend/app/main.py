@@ -14,6 +14,7 @@ from app.models import AuditLog
 from app.routers import analysis, cases, export, jobs
 from app.routers.cases import verify_custody_chain
 from app.schemas import AuditLogOut, VerifyResult
+from app.services.intel import resolve_intel_mode
 from app.security import (
     ALLOWED_ORIGINS,
     InvestigatorPrincipal,
@@ -115,7 +116,12 @@ def root() -> dict:
 @app.get("/api/health", tags=["system"])
 def health() -> dict:
     """Public health check endpoint for container orchestrators and status badges."""
-    return {"status": "ok", "service": "aether-api", "version": "1.1.0"}
+    return {
+        "status": "ok",
+        "service": "aether-api",
+        "version": "1.1.0",
+        "intel_mode": resolve_intel_mode(),
+    }
 
 
 # ---------- Protected Custody & Audit Endpoints ---------- #

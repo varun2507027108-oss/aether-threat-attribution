@@ -49,9 +49,10 @@ from app.services.intel import (
     compare_image_similarity,
     compute_shodan_favicon_hash,
     compute_simple_dhash,
+    get_intel_provider,
     normalize_pgp_fingerprint,
     probe_tls_jarm,
-    PublicIntelService,
+    resolve_intel_mode,
 )
 from app.services.job_events import job_broadcaster
 from app.services.scoring import calculate_calibrated_confidence
@@ -521,8 +522,8 @@ async def _run_module_osint(
     case_id: int,
     origin_ip: str,
 ) -> ModuleExecutionResult:
-    intel_svc = PublicIntelService()
-    intel_res = await asyncio.to_thread(intel_svc.query_ip_intelligence, origin_ip, fallback_demo=(mode != "live"))
+    intel_svc = get_intel_provider(mode)
+    intel_res = await asyncio.to_thread(intel_svc.query_ip_intelligence, origin_ip)
 
     ev = Evidence(
         case_id=case_id,
@@ -540,6 +541,7 @@ async def _run_module_osint(
             "org": intel_res.get("org"),
             "ports": intel_res.get("ports", []),
             "geo": intel_res.get("geo"),
+            "intel_mode": intel_svc.mode,
             "evidentiary_caveat": "Public OSINT scanning reflects external port visibility at time of observation.",
         },
         created_at=_utcnow(),
@@ -547,12 +549,15 @@ async def _run_module_osint(
     timeline_entry = {
         "step": 9,
         "title": "Public OSINT Intelligence Tagged",
-        "description": f"Provenance tagged as {intel_res['status']} via {intel_res.get('source', 'OSINT')}.",
+        "description": f"Provenance tagged as {intel_res['status']} via {intel_res.get('source', 'OSINT')} (intel mode: {intel_svc.mode}).",
         "timestamp": _utcnow_iso(),
         "status": "COMPLETED",
     }
-    custody_action = f"Public OSINT telemetry retrieved: {intel_res['status']} from {intel_res.get('source', 'OSINT')}."
-    summary = f"OSINT provenance: {intel_res['status']}"
+    custody_action = (
+        f"Public OSINT telemetry retrieved: {intel_res['status']} from "
+        f"{intel_res.get('source', 'OSINT')} (intel mode: {intel_svc.mode})."
+    )
+    summary = f"OSINT provenance: {intel_res['status']} ({intel_svc.mode})"
 
     return ModuleExecutionResult(
         module_key="osint",
@@ -562,7 +567,7 @@ async def _run_module_osint(
         timeline_entry=timeline_entry,
         custody_action=custody_action,
         summary=summary,
-        data={"intel_res": intel_res},
+        data={"intel_res": intel_res, "intel_mode": intel_svc.mode},
     )
 
 

@@ -74,3 +74,33 @@ This document records architectural, cryptographic, and operational decisions ma
   5. *Investigator OPSEC Probing Flag*:
      - Added `AETHER_ACTIVE_PROBE_ENABLED` (default `false`). When false, active JARM/TLS network handshakes are skipped, relying on stored telemetry and public benchmark data. When true, probes are routed through the Tor proxy with circuit isolation.
 
+---
+
+## Decision 005 — Parallel Pipeline, Job Model & SSE Streaming (Phase 4)
+- **Date**: 2026-09-27
+- **Status**: Accepted
+- **Context**: The original investigation pipeline executed its nine forensic modules sequentially inside a single request, so a slow module held an HTTP connection open for up to `9 × 45s` and the UI showed no progress. Attribution runs are long and must be observable.
+- **Decisions**:
+  1. *Non-Blocking Job Model*: Added the `InvestigationJob` model (`queued | running | partial | complete | failed`) with a JSON `modules` column holding per-module `{module, status, started_at, finished_at, summary}`. `POST /api/cases/investigate` returns `202 {job_id, status_url}` and dispatches via `asyncio.create_task`. This assumes a **single-worker uvicorn**; `arq` (or any external queue) is the documented upgrade path for multi-worker deployments, where in-process tasks would be orphaned on worker restart.
+  2. *Per-Module Timeout & Isolation*: Each module is an `async def` coroutine wrapped in `asyncio.wait_for(..., timeout=AETHER_MODULE_TIMEOUT)` (default 45s) and executed via `asyncio.gather(..., return_exceptions=True)`. One module raising yields job status `partial` while every other module's result is still persisted — partial evidence is still evidence.
+  3. *SQLAlchemy JSON Mutation Pitfall*: Module results are written into the `modules` JSON column by **replacing the whole list** and calling `sqlalchemy.orm.attributes.flag_modified`. Mutating a nested dict in place is not detected by SQLAlchemy's attribute history and silently drops the progress update from the database (the value is correct in the session, wrong after re-query). This was diagnosed empirically and is now the required write pattern.
+  4. *Backward Compatibility*: `?sync=true` retains the original blocking response shape for existing callers and the legacy test suite. `scripts/smoke_test.sh` was updated to poll the job status URL instead of expecting a synchronous body.
+  5. *SSE Auth Constraint*: `EventSource` cannot set request headers, so `GET /api/jobs/{id}/events` additionally accepts the API key as a `?token=` query parameter. This is scoped to the read-only job endpoints; all state-changing routes still require the `X-AETHER-KEY` header.
+  6. *Client Resilience*: `subscribeJobEvents()` in `api.ts` attaches an SSE stream and falls back to 2-second polling of `GET /api/jobs/{id}` when `EventSource` is unavailable, so the modal degrades rather than hanging.
+
+---
+
+## Decision 006 — Intel Source Mode Abstraction & Offline Fixture Corpus (Phase 5)
+- **Date**: 2026-09-27
+- **Status**: Accepted
+- **Context**: Attribution confidence must be reproducible and demonstrable during a SIH evaluation where network egress, API keys, and rate limits are all unavailable and unquotable. At the same time, production analysts need the real Shodan/Censys data. Hardcoding a demo branch (as the pre-Phase-5 `PublicIntelService` did) made the two paths diverge and left the live path effectively untested.
+- **Decisions**:
+  1. *Single Interface, Two Providers*: Introduced the `IntelProvider` interface in `app/services/intel.py` with `LiveProvider` (wraps the existing authorized Shodan/Censys client) and `MockProvider` (reads JSON fixtures from disk). `get_intel_provider(mode)` returns the implementation for the resolved mode, so the pipeline calls one API regardless of source.
+  2. *Mode Resolution Precedence*: explicit runtime argument → `AETHER_INTEL_MODE` → presence of `SHODAN_API_KEY` (live) else mock. An unrecognized `AETHER_INTEL_MODE` value is **ignored rather than raised on**: a typo degrades to a safe deterministic default instead of aborting an in-flight investigation.
+  3. *Canonical Target Keys*: Fixtures are keyed by `canonicalize_target()`. IPv4/IPv6 are normalized via `ipaddress`, IPv4 octets with leading zeros are normalized explicitly (Python 3.9+ rejects them, but investigators paste them constantly, and failing to normalize would silently split one host across two fixture files), and hostnames are lowercased, IDNA-encoded, and trailing-dot stripped. Fixture filename characters are sanitized to a safe charset, which also neutralizes path-traversal attempts.
+  4. *Soft Degradation Is The Default*: `MockProvider` returns `SOURCE_UNAVAILABLE` for an un-fixtured target instead of raising, so a mock-mode investigation against an arbitrary target still completes with partial results. Corrupt or unreadable fixtures are logged and treated as absent.
+  5. *Determinism Over Caching*: The mock cache is per-provider-instance, so editing a fixture mid-session is picked up by a fresh provider. Determinism comes from the immutable fixture data, not from a long-lived process cache.
+  6. *No Live→Demo Fallback*: `LiveProvider` does **not** fall back to the curated demo record when a key is missing or an API call fails. The pre-Phase-5 `fallback_demo` flag conflated "we queried a source and it said nothing" with "we have a synthetic record for this exact IP", which is exactly the kind of provenance confusion that invalidates evidence. A separate `DEMO_DATA` label is only ever produced by `MockProvider`.
+  7. *Test Isolation*: `tests/conftest.py` sets `AETHER_INTEL_MODE=mock` before the app is imported, so no test can reach the network even when a developer has `SHODAN_API_KEY` exported in their shell. `GET /api/health` now reports the resolved `intel_mode` for operational visibility.
+
+

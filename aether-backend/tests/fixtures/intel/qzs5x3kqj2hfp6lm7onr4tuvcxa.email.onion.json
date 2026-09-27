@@ -1,0 +1,15 @@
+{
+  "source": "AETHER Forensic Benchmark Corpus (Curated Threat Telemetry)",
+  "asn": "AS60729 Zayo Bandwidth",
+  "org": "Hidden Service (Tor)",
+  "ports": [80, 443],
+  "geo": "Unknown (routed via at least 3 guards)",
+  "hostnames": ["qzs5x3kqj2hfp6lm7onr4tuvcxa.email.onion"],
+  "banners": ["nginx/1.18.0 (Ubuntu)", "Content-Type: text/html; charset=utf-8"],
+  "favicon_mmh3": -887412336,
+  "jarm": "29d29d00029d29d00029d29d29d29d2f2d93e1b74a3f242d599c72e25df963",
+  "ssl_cert_fingerprint": "7ea4c0b18d3f2956c41b80df37e2a95c8093fd61b4ea27c50d98e136af5b742c",
+  "crt_sh_domains": [],
+  "last_observed_utc": "2026-09-15T19:12:03Z",
+  "corpus_notes": "Phishing marketplace front-end hosted as a v3 onion service. Onion address appears in Certificate Transparency logs of two unrelated clearnet domains, which is the de-anonymisation vector of interest."
+}

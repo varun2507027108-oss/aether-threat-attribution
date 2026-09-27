@@ -15,9 +15,12 @@ from __future__ import annotations
 
 import base64
 import hashlib
+import ipaddress
+import json
 import logging
 import os
 import re
+from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 from urllib.parse import urlparse
 
@@ -540,3 +543,249 @@ class PublicIntelService:
             "geo": "Unknown",
             "asn": "Unknown",
         }
+
+
+# ============================================================================ #
+# 6. Intel Mode Resolution & Provider Abstraction (Phase 5)
+# ============================================================================
+#
+# Attribution must never depend on network availability. The intelligence
+# layer therefore has two interchangeable providers behind one interface:
+#
+#   LiveProvider -> authorized Shodan / Censys queries (requires API keys)
+#   MockProvider -> deterministic fixtures on disk (default for dev and CI)
+#
+# Mode resolution precedence (highest first):
+#   1. explicit runtime override argument
+#   2. AETHER_INTEL_MODE environment variable ("live" | "mock")
+#   3. presence of SHODAN_API_KEY -> "live", otherwise "mock"
+#
+# This keeps the zero-config dev path and the entire test suite offline while
+# preserving a single code path for the production pipeline.
+
+VALID_INTEL_MODES = ("live", "mock")
+
+# Directory holding deterministic offline fixtures, keyed by canonicalized target.
+DEFAULT_FIXTURES_DIR = Path(__file__).resolve().parents[2] / "tests" / "fixtures" / "intel"
+
+
+def get_intel_fixtures_dir() -> Path:
+    """Resolve the intel fixture directory, honouring AETHER_INTEL_FIXTURES_DIR."""
+    override = os.getenv("AETHER_INTEL_FIXTURES_DIR", "").strip()
+    return Path(override) if override else DEFAULT_FIXTURES_DIR
+
+
+def resolve_intel_mode(explicit: Optional[str] = None) -> str:
+    """Resolve the effective intel mode.
+
+    Args:
+        explicit: Optional runtime override, e.g. a per-request ``mode`` value.
+
+    Returns:
+        Either ``"live"`` or ``"mock"``. Unknown values are ignored rather than
+        raising, so a typo degrades to a safe, deterministic default instead of
+        breaking an in-flight investigation.
+    """
+    candidates = [explicit, os.getenv("AETHER_INTEL_MODE")]
+    for candidate in candidates:
+        if candidate is None:
+            continue
+        normalized = str(candidate).strip().lower()
+        if normalized in VALID_INTEL_MODES:
+            return normalized
+
+    if os.getenv("SHODAN_API_KEY", "").strip():
+        return "live"
+    return "mock"
+
+
+def canonicalize_target(target: str) -> str:
+    """Normalize a target identifier into a stable fixture lookup key.
+
+    IPv4/IPv6 addresses are normalized through the ``ipaddress`` module so that
+    ``185.220.101.042`` and ``185.220.101.42`` resolve to the same fixture.
+    Hostnames (including ``.onion``) are lowercased with any trailing dot
+    removed. Anything else is returned lowercased and stripped.
+    """
+    clean = str(target or "").strip().lower().rstrip(".")
+    if not clean:
+        return ""
+
+    try:
+        return ipaddress.ip_address(clean).compressed
+    except ValueError:
+        pass
+
+    # Python 3.9+ rejects IPv4 octets with leading zeros, but investigators
+    # routinely paste them. Normalize those explicitly so the same host does not
+    # resolve to two different fixture files.
+    if re.fullmatch(r"\d{1,3}(?:\.\d{1,3}){3}", clean):
+        octets = [int(part) for part in clean.split(".")]
+        if all(0 <= octet <= 255 for octet in octets):
+            return ".".join(str(octet) for octet in octets)
+
+    try:
+        return clean.encode("idna").decode("ascii")
+    except (UnicodeError, UnicodeDecodeError):
+        return clean
+
+
+class IntelProvider:
+    """Interface for host intelligence providers.
+
+    Implementations must be side-effect free with respect to the database and
+    must never raise: unavailable sources return a ``SOURCE_UNAVAILABLE``
+    status so that the surrounding investigation pipeline can degrade softly.
+    """
+
+    mode: str = "unknown"
+
+    def query_ip_intelligence(self, ip_address: str, **kwargs: Any) -> Dict[str, Any]:
+        raise NotImplementedError
+
+    def query_favicon_hash(self, target: str) -> Optional[int]:
+        raise NotImplementedError
+
+    def query_jarm(self, target: str) -> Optional[str]:
+        raise NotImplementedError
+
+    def query_tls_cert_fingerprint(self, target: str) -> Optional[str]:
+        """SHA-256 fingerprint of the presented leaf certificate (Phase 8)."""
+        return None
+
+
+class LiveProvider(IntelProvider):
+    """Wraps the existing authorized Shodan / Censys client."""
+
+    mode = "live"
+
+    def __init__(self, shodan_key: Optional[str] = None):
+        self._service = PublicIntelService()
+        if shodan_key is not None:
+            self._service.shodan_key = shodan_key.strip()
+
+    def query_ip_intelligence(self, ip_address: str, **kwargs: Any) -> Dict[str, Any]:
+        fallback_demo = bool(kwargs.get("fallback_demo", False))
+        return self._service.query_ip_intelligence(ip_address, fallback_demo=fallback_demo)
+
+    def query_favicon_hash(self, target: str) -> Optional[int]:
+        result = self.query_ip_intelligence(target)
+        if result.get("status") != "LIVE_SOURCE":
+            return None
+        return result.get("favicon_mmh3")
+
+    def query_jarm(self, target: str) -> Optional[str]:
+        result = self.query_ip_intelligence(target)
+        if result.get("status") != "LIVE_SOURCE":
+            return None
+        return result.get("jarm")
+
+    def query_tls_cert_fingerprint(self, target: str) -> Optional[str]:
+        result = self.query_ip_intelligence(target)
+        if result.get("status") != "LIVE_SOURCE":
+            return None
+        return result.get("ssl_cert_fingerprint")
+
+
+class MockProvider(IntelProvider):
+    """Deterministic offline provider backed by JSON fixtures on disk.
+
+    Each fixture is a single JSON object shaped like a Shodan host record. Files
+    are named after the canonicalized target (``185.220.101.42.json``). Unknown
+    targets resolve to ``SOURCE_UNAVAILABLE`` instead of raising, so an
+    investigation against an un-fixtured target still completes with partial
+    results.
+    """
+
+    mode = "mock"
+
+    def __init__(self, fixtures_dir: Optional[Path] = None):
+        self.fixtures_dir = Path(fixtures_dir) if fixtures_dir else get_intel_fixtures_dir()
+        self._cache: Dict[str, Optional[Dict[str, Any]]] = {}
+
+    def _load(self, canonical: str) -> Optional[Dict[str, Any]]:
+        if canonical in self._cache:
+            return self._cache[canonical]
+        if not canonical:
+            self._cache[canonical] = None
+            return None
+
+        safe_name = re.sub(r"[^A-Za-z0-9._\-]", "_", canonical)
+        path = self.fixtures_dir / f"{safe_name}.json"
+        record: Optional[Dict[str, Any]] = None
+        try:
+            record = json.loads(path.read_text(encoding="utf-8"))
+        except FileNotFoundError:
+            logger.debug("No intel fixture for target %s at %s", canonical, path)
+        except (json.JSONDecodeError, OSError) as exc:
+            logger.warning("Intel fixture unreadable for %s (%s): %s", canonical, path, exc)
+
+        self._cache[canonical] = record
+        return record
+
+    def _unavailable(self, target: str, canonical: str) -> Dict[str, Any]:
+        return {
+            "status": "SOURCE_UNAVAILABLE",
+            "source": "AETHER Offline Intel Corpus (mock mode)",
+            "ip": target,
+            "message": (
+                f"No offline fixture for target '{canonical}' and live mode is disabled "
+                f"(AETHER_INTEL_MODE=mock, SHODAN_API_KEY unset)."
+            ),
+            "ports": [],
+            "geo": "Unknown",
+            "asn": "Unknown",
+            "org": "Unknown",
+            "mode": self.mode,
+        }
+
+    def query_ip_intelligence(self, ip_address: str, **kwargs: Any) -> Dict[str, Any]:
+        canonical = canonicalize_target(ip_address)
+        record = self._load(canonical)
+        if not record:
+            return self._unavailable(ip_address, canonical)
+
+        return {
+            "status": "DEMO_DATA",
+            "source": record.get(
+                "source", "AETHER Forensic Benchmark Corpus (Curated Threat Telemetry)"
+            ),
+            "ip": canonical,
+            "asn": record.get("asn", "Unknown ASN"),
+            "org": record.get("org", "Unknown Org"),
+            "ports": list(record.get("ports", [])),
+            "geo": record.get("geo", "Unknown"),
+            "hostnames": list(record.get("hostnames", [])),
+            "banners": list(record.get("banners", [])),
+            "favicon_mmh3": record.get("favicon_mmh3"),
+            "jarm": record.get("jarm"),
+            "ssl_cert_fingerprint": record.get("ssl_cert_fingerprint"),
+            "crt_sh_domains": list(record.get("crt_sh_domains", [])),
+            "raw_osint": record,
+            "mode": self.mode,
+            "canonical_target": canonical,
+        }
+
+    def query_favicon_hash(self, target: str) -> Optional[int]:
+        record = self._load(canonicalize_target(target))
+        return record.get("favicon_mmh3") if record else None
+
+    def query_jarm(self, target: str) -> Optional[str]:
+        record = self._load(canonicalize_target(target))
+        return record.get("jarm") if record else None
+
+    def query_tls_cert_fingerprint(self, target: str) -> Optional[str]:
+        record = self._load(canonicalize_target(target))
+        return record.get("ssl_cert_fingerprint") if record else None
+
+    def query_ct_domains(self, target: str) -> List[str]:
+        record = self._load(canonicalize_target(target))
+        return list(record.get("crt_sh_domains", [])) if record else []
+
+
+def get_intel_provider(mode: Optional[str] = None) -> IntelProvider:
+    """Instantiate the intel provider for the resolved mode."""
+    resolved = resolve_intel_mode(mode)
+    if resolved == "live":
+        return LiveProvider()
+    return MockProvider()
