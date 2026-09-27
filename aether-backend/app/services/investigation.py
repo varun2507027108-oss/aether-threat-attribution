@@ -25,6 +25,7 @@ from __future__ import annotations
 import asyncio
 from datetime import datetime, timezone
 import hashlib
+import ipaddress
 import logging
 import os
 import random
@@ -47,15 +48,19 @@ from app.services.graph import EntityGraph, cluster_bitcoin_transactions
 from app.services.intel import (
     analyze_jarm_fingerprint,
     compare_image_similarity,
+    compute_ct_overlap,
     compute_shodan_favicon_hash,
     compute_simple_dhash,
     get_intel_provider,
     normalize_pgp_fingerprint,
     probe_tls_jarm,
+    query_certificate_transparency,
     resolve_intel_mode,
+    resolve_tls_fingerprint,
 )
 from app.services.job_events import job_broadcaster
 from app.services.scoring import (
+    STANCE_CONTRADICTS,
     Evidence as ScoringEvidence,
     make_evidence,
     score_evidence,
@@ -76,6 +81,7 @@ MODULE_DEFS = [
     {"module": "diurnal", "name": "Circadian Diurnal Inference"},
     {"module": "osint", "name": "Public OSINT Intel"},
     {"module": "visual", "name": "Visual Branding Perceptual dHash"},
+    {"module": "ct_log", "name": "Certificate Transparency Log Vector"},
 ]
 
 
@@ -405,6 +411,31 @@ async def _run_module_jarm(
     custody_action = f"JARM TLS fingerprint evaluated: {jarm_match.get('matched_profile')}."
     summary = f"Matched TLS stack: {jarm_match.get('matched_profile')}"
 
+    # Phase 8: resolve the leaf certificate fingerprint as an attribution
+    # artefact. Failures degrade to an uninformative result rather than
+    # failing the JARM module, which has already produced its own evidence.
+    fingerprint_res: Dict[str, Any] = {"status": "NOT_EVALUATED"}
+    try:
+        known_certs: Dict[str, str] = {}
+        provider = get_intel_provider(mode)
+        for candidate in (origin_ip_of(clean_target), clean_target):
+            if not candidate:
+                continue
+            candidate_fp = provider.query_tls_cert_fingerprint(candidate)
+            if candidate_fp:
+                known_certs[candidate] = candidate_fp
+        fingerprint_res = await asyncio.to_thread(
+            resolve_tls_fingerprint,
+            target=clean_target,
+            candidates=known_certs,
+            provider=provider,
+        )
+    except Exception as exc:  # noqa: BLE001 - never fail the module on a soft indicator
+        logger.warning("TLS fingerprint resolution failed for %s: %s", clean_target, exc)
+        fingerprint_res = {"status": "ERROR", "error": str(exc)}
+
+    ev.metadata_json["tls_cert_fingerprint"] = fingerprint_res
+
     return ModuleExecutionResult(
         module_key="jarm",
         name="JARM TLS Fingerprinting",
@@ -413,8 +444,16 @@ async def _run_module_jarm(
         timeline_entry=timeline_entry,
         custody_action=custody_action,
         summary=summary,
-        data={"jarm_res": jarm_res},
+        data={"jarm_res": jarm_res, "tls_fingerprint_res": fingerprint_res},
     )
+
+
+def origin_ip_of(target: str) -> str:
+    """Best-effort origin IP for a target, empty when it is not an IP literal."""
+    try:
+        return str(ipaddress.ip_address(target.strip()))
+    except (ValueError, AttributeError):
+        return ""
 
 
 async def _run_module_crypto(
@@ -623,6 +662,110 @@ async def _run_module_visual(
         custody_action=custody_action,
         summary=summary,
         data={"visual_res": visual_res},
+    )
+
+
+async def _run_module_ct_log(
+    payload: InvestigationStartRequest,
+    clean_target: str,
+    target_type: str,
+    mode: str,
+    case_id: int,
+) -> ModuleExecutionResult:
+    """Certificate Transparency disclosure vector (Phase 8).
+
+    A passive query of a public append-only log. It never touches the target,
+    so it is safe to run with active probing disabled.
+    """
+    # Identifiers attributed to the subject: onion addresses and PGP key IDs are
+    # what an operator most often leaks inside a certificate SAN.
+    identifiers: List[str] = []
+    if clean_target.endswith(".onion"):
+        identifiers.append(clean_target)
+    if payload.known_pgp:
+        normalized = re.sub(r"[^0-9A-Fa-f]", "", payload.known_pgp).lower()
+        if normalized:
+            identifiers.append(normalized)
+    if payload.known_btc:
+        identifiers.append(str(payload.known_btc).strip())
+
+    provider = get_intel_provider(mode)
+    domain = clean_target if not origin_ip_of(clean_target) else ""
+
+    if domain:
+        ct_res = await asyncio.to_thread(query_certificate_transparency, domain, identifiers)
+    elif provider.mode == "mock":
+        # Offline corpus: the fixtures already record the CT-visible domains.
+        ct_subjects = provider.query_ct_domains(clean_target)
+        ct_res = {
+            "status": "OK" if ct_subjects else "NO_DATA",
+            "subjects": ct_subjects,
+            "wildcard_subjects": [],
+            "issuers": [],
+            "certificate_count": len(ct_subjects),
+            "cache_hit": False,
+            "source": "offline corpus fixture",
+        }
+        if identifiers:
+            ct_res["overlap_report"] = compute_ct_overlap(identifiers, ct_res)
+    else:
+        ct_res = {
+            "status": "SKIPPED",
+            "subjects": [],
+            "reason": "Certificate Transparency lookup requires a domain, and the target is an IP literal.",
+        }
+
+    overlap = ct_res.get("overlap_report") or compute_ct_overlap(identifiers, ct_res)
+    usable = bool(overlap.get("usable_as_evidence"))
+
+    ev = Evidence(
+        case_id=case_id,
+        evidence_type="CT_LOG_DISCLOSURE",
+        title="Certificate Transparency Log Disclosure Check",
+        raw_value=(
+            ", ".join(overlap.get("exact_matches", [])[:5])
+            or f"{len(ct_res.get('subjects', []) or [])} subject(s) in log, no overlap"
+        ),
+        normalized_hash=hashlib.sha256(
+            "|".join(overlap.get("exact_matches", []) or ["none"]).encode("utf-8")
+        ).hexdigest(),
+        confidence=0.88 if usable else 0.0,
+        provenance=("LIVE_SOURCE" if ct_res.get("status") == "OK" and provider.mode == "live" else "DEMO_DATA"),
+        source_reference=("crt.sh Certificate Transparency Log" if provider.mode == "live" else "AETHER Offline CT Corpus"),
+        metadata_json={
+            "status": ct_res.get("status"),
+            "queried_domain": domain or None,
+            "identifiers_searched": identifiers,
+            "exact_matches": overlap.get("exact_matches", []),
+            "wildcard_only_matches": overlap.get("wildcard_only_matches", []),
+            "ct_subjects": ct_res.get("subjects", [])[:50],
+            "note": overlap.get("note"),
+            "evidentiary_caveat": (
+                "A Certificate Transparency log is public and irreversible. A match proves the "
+                "identifier was published in a certificate, not who published it."
+            ),
+        },
+        created_at=_utcnow(),
+    )
+    timeline_entry = {
+        "step": 11,
+        "title": "Certificate Transparency Log Queried",
+        "description": overlap.get("note", "No CT overlap found."),
+        "timestamp": _utcnow_iso(),
+        "status": "COMPLETED",
+    }
+    custody_action = f"Certificate Transparency log queried for {domain or clean_target}: {overlap.get('note')}"
+    summary = f"CT overlap: {len(overlap.get('exact_matches', []))} exact match(es)"
+
+    return ModuleExecutionResult(
+        module_key="ct_log",
+        name="Certificate Transparency Log Vector",
+        success=True,
+        evidence=ev,
+        timeline_entry=timeline_entry,
+        custody_action=custody_action,
+        summary=summary,
+        data={"ct_res": ct_res, "overlap": overlap},
     )
 
 
@@ -869,7 +1012,7 @@ async def run_full_investigation_async(
                 error=err_msg,
             )
 
-    # Launch all 9 forensic modules in parallel
+    # Launch all forensic modules in parallel
     tasks = [
         _execute_single_module(MODULE_DEFS[0], lambda: _run_module_favicon(payload, clean_target, target_type, mode, case.id)),
         _execute_single_module(MODULE_DEFS[1], lambda: _run_module_stylometry(payload, clean_target, target_type, mode, case.id)),
@@ -880,6 +1023,7 @@ async def run_full_investigation_async(
         _execute_single_module(MODULE_DEFS[6], lambda: _run_module_diurnal(payload, clean_target, target_type, mode, case.id)),
         _execute_single_module(MODULE_DEFS[7], lambda: _run_module_osint(payload, clean_target, target_type, mode, case.id, origin_ip)),
         _execute_single_module(MODULE_DEFS[8], lambda: _run_module_visual(payload, clean_target, target_type, mode, case.id)),
+        _execute_single_module(MODULE_DEFS[9], lambda: _run_module_ct_log(payload, clean_target, target_type, mode, case.id)),
     ]
 
     results: List[Any] = await asyncio.gather(*tasks, return_exceptions=True)
@@ -1099,6 +1243,49 @@ async def run_full_investigation_async(
                 detail="Hosting ASN / banner overlap from the public OSINT provider.",
             )
         )
+
+    # Phase 8 indicators. Both are probabilistic-leaning: a certificate match is
+    # strong, but the *reuse* has to be of a non-commodity certificate, and a CT
+    # overlap only proves publication, not authorship.
+    if res_map.get("jarm") and res_map["jarm"].success:
+        fingerprint = (res_map["jarm"].data.get("tls_fingerprint_res") or {}).get("match") or {}
+        if fingerprint.get("matched"):
+            attribution_indicators.append(
+                make_evidence(
+                    "tls_cert_match",
+                    0.95 if fingerprint.get("strength") == "high" else 0.7,
+                    raw_value=fingerprint.get("candidate"),
+                    detail="Reused non-commodity TLS leaf certificate across unrelated infrastructure.",
+                )
+            )
+        elif fingerprint.get("reason") == "fingerprint_matches_but_certificate_is_commodity":
+            # A commodity certificate match is evidence *against* attributing on
+            # the certificate: it is shared with unrelated hosts by construction.
+            attribution_indicators.append(
+                make_evidence(
+                    "tls_cert_match",
+                    0.6,
+                    stance=STANCE_CONTRADICTS,
+                    raw_value=fingerprint.get("fingerprint"),
+                    detail=(
+                        "The matching certificate is a commodity certificate "
+                        f"({fingerprint.get('classification', {}).get('commodity_marker')}), so it "
+                        "cannot identify an operator and must not support attribution."
+                    ),
+                )
+            )
+
+    if res_map.get("ct_log") and res_map["ct_log"].success:
+        overlap = res_map["ct_log"].data.get("overlap") or {}
+        if overlap.get("usable_as_evidence"):
+            attribution_indicators.append(
+                make_evidence(
+                    "ct_log_overlap",
+                    min(1.0, 0.6 + 0.15 * len(overlap.get("exact_matches", []))),
+                    raw_value=", ".join(overlap.get("exact_matches", [])[:3]),
+                    detail="Subject identifier published in an irreversible Certificate Transparency log.",
+                )
+            )
 
     # Active contradiction: a reused TLS certificate or CT-log overlap that points
     # at a *different* documented subject must suppress attribution rather than

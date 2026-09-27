@@ -8,7 +8,7 @@
   "banners": ["nginx/1.24.0", "HTTP/1.1 200 OK\r\nServer: nginx"],
   "favicon_mmh3": -1471325104,
   "jarm": "07d14d16d21d21d07c42d41d00041d24a45a31ad4f776aab480113503280b0",
-  "ssl_cert_fingerprint": "b81d4e0c927fa3650e14b7c8d2936f05ca7149be230cd86f5a3710be984c7d2",
+  "ssl_cert_fingerprint": "b81d4e0c927fa3650e14b7c8d2936f05ca7149be230cd86f5a3710be984c7d2f",
   "crt_sh_domains": [
     "torproject-cdn-mirror.xyz",
     "cdn-assets-shop-mirror.torproject-cdn-mirror.xyz",

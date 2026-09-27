@@ -20,13 +20,18 @@ import json
 import logging
 import os
 import re
+import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 from urllib.parse import urlparse
 
 import httpx
 
-from app.security import assert_safe_direct_fetch, is_safe_direct_fetch
+from app.security import (
+    assert_allowed_external_intel_url,
+    assert_safe_direct_fetch,
+    is_safe_direct_fetch,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -789,3 +794,407 @@ def get_intel_provider(mode: Optional[str] = None) -> IntelProvider:
     if resolved == "live":
         return LiveProvider()
     return MockProvider()
+
+
+# ============================================================================ #
+# 7. TLS Certificate Fingerprinting (Phase 8)
+# ============================================================================ #
+
+# TLS leaf certificate reuse is one of the strongest single attribution
+# artefacts available: operators routinely reuse one self-signed certificate
+# across unrelated darknet markets because reissuing one is extra work.
+# The weakness is that wildcard and default certificates are shared by
+# thousands of unrelated hosts, so a match is only meaningful when the
+# certificate is not a commodity one.
+
+_COMMODITY_CERT_MARKERS = (
+    "letsencrypt", "let's encrypt", "zerossl", "buypass", "cpanel", "plesk",
+    "sectigo", "comodo", "digicert", "globalsign", "ssl.com", "entrust",
+    "cloudflare", "amazon", "aws", "gts", "yahoo", "google", "microsoft",
+)
+
+_SELF_SIGNED_HINTS = ("CN=", "O=", "OU=")
+
+
+def normalize_fingerprint(fingerprint: str) -> str:
+    """Normalize a certificate fingerprint to lowercase hex without separators.
+
+    Accepts the shapes that actually appear in the wild: Shodan's ``ssl.cert.fingerprint.sha256``
+    (bare hex), the colon-delimited OpenSSL ``sha256 Fingerprint=AB:CD:...`` form,
+    and values with an ``SHA256:`` prefix.
+    """
+    if not fingerprint:
+        return ""
+    cleaned = re.sub(r"^\s*sha-?256[:=]?\s*", "", str(fingerprint), flags=re.IGNORECASE)
+    cleaned = re.sub(r"[^0-9a-fA-F]", "", cleaned)
+    return cleaned.lower()
+
+
+def classify_certificate(fingerprint: str, subject: str = "") -> Dict[str, Any]:
+    """Classify a certificate fingerprint as a unique artefact or a commodity one.
+
+    A commodity certificate must never contribute attribution evidence: matching
+    "DigiCert Inc" is matching a signature that millions of unrelated sites carry.
+    """
+    normalized = normalize_fingerprint(fingerprint)
+    haystack = f"{subject} {normalized}".lower()
+
+    if len(normalized) != 64:
+        return {
+            "valid": False,
+            "fingerprint": normalized,
+            "error": f"SHA-256 certificate fingerprint must be 64 hex characters, got {len(normalized)}.",
+        }
+
+    commodity = next((marker for marker in _COMMODITY_CERT_MARKERS if marker in haystack), None)
+    self_signed = any(hint in subject for hint in _SELF_SIGNED_HINTS) or "self" in haystack
+
+    return {
+        "valid": True,
+        "fingerprint": normalized,
+        "commodity": commodity is not None,
+        "commodity_marker": commodity,
+        "self_signed": self_signed,
+        "uniqueness": "low" if commodity is not None else ("high" if self_signed else "moderate"),
+        "usable_as_evidence": commodity is None,
+        "note": (
+            f"Certificate matches a commodity issuer ({commodity}); excluded from attribution "
+            "evidence because it is shared with unrelated hosts."
+            if commodity is not None
+            else "Non-commodity certificate: reuse is a meaningful operator artefact."
+        ),
+    }
+
+
+def match_certificate_fingerprint(
+    target_fingerprint: str,
+    candidate_fingerprints: Dict[str, str],
+    subject: str = "",
+) -> Dict[str, Any]:
+    """Match a target certificate fingerprint against known clearnet candidates.
+
+    Args:
+        target_fingerprint: SHA-256 fingerprint presented by the target.
+        candidate_fingerprints: Mapping of label -> fingerprint for known subjects.
+        subject: Optional certificate subject string for commodity classification.
+    """
+    classification = classify_certificate(target_fingerprint, subject)
+    if not classification["valid"]:
+        return {
+            "matched": False,
+            "fingerprint": classification["fingerprint"],
+            "reason": classification["error"],
+            "classification": classification,
+        }
+
+    target = classification["fingerprint"]
+    matches = [
+        {"candidate": label, "fingerprint": candidate}
+        for label, candidate in (candidate_fingerprints or {}).items()
+        if normalize_fingerprint(candidate) == target
+    ]
+
+    if matches and not classification["usable_as_evidence"]:
+        return {
+            "matched": False,
+            "fingerprint": target,
+            "reason": "fingerprint_matches_but_certificate_is_commodity",
+            "superseded_by": [m["candidate"] for m in matches],
+            "classification": classification,
+            "note": (
+                "The certificate does appear on known infrastructure, but it is a commodity "
+                "certificate, so the match is not treated as attribution evidence."
+            ),
+        }
+
+    if not matches:
+        return {
+            "matched": False,
+            "fingerprint": target,
+            "reason": "no_candidate_match",
+            "classification": classification,
+        }
+
+    best = matches[0]
+    return {
+        "matched": True,
+        "fingerprint": target,
+        "candidate": best["candidate"],
+        "additional_matches": [m["candidate"] for m in matches[1:]],
+        "strength": classification["uniqueness"],
+        "classification": classification,
+        "note": classification["note"],
+    }
+
+
+def resolve_tls_fingerprint(
+    target: str,
+    candidates: Optional[Dict[str, str]] = None,
+    subject: str = "",
+    provider: Optional[IntelProvider] = None,
+) -> Dict[str, Any]:
+    """Resolve the fingerprint a target presents, active-probe or stored only.
+
+    Active probing is a deanonymization risk, so the fingerprint is read from
+    stored OSINT telemetry unless AETHER_ACTIVE_PROBE_ENABLED is set. When
+    active probing is enabled but the Tor transport is unconfigured, the module
+    still does not fall back to an unproxied clearnet handshake.
+    """
+    intel = provider or get_intel_provider()
+    active = is_active_probe_enabled()
+    tor_proxy = get_tor_socks_url()
+
+    result: Dict[str, Any] = {
+        "target": target,
+        "active_probe_conducted": False,
+        "routed_via_tor": False,
+        "intel_mode": intel.mode,
+    }
+
+    probe_refused = False
+    if active and not tor_proxy:
+        probe_refused = True
+        result.update({
+            "error": (
+                "Active probing is enabled but no Tor SOCKS proxy is configured "
+                "(AETHER_TOR_SOCKS_URL). An unproxied clearnet TLS handshake would "
+                "expose the investigator, so no active probe was attempted."
+            ),
+            "opsec_note": "Active probe withheld: refusing to deanonymize the investigator.",
+        })
+    else:
+        if active:
+            result["routed_via_tor"] = True
+            result["tor_proxy_used"] = build_isolated_socks_url(tor_proxy, "tls-fingerprint")
+            result["active_probe_conducted"] = True
+        else:
+            result["opsec_note"] = (
+                "Active TLS handshake skipped by OPSEC policy "
+                "(AETHER_ACTIVE_PROBE_ENABLED=false); using stored telemetry."
+            )
+
+    fingerprint = intel.query_tls_cert_fingerprint(target)
+    if not fingerprint:
+        result.update({
+            "status": "SOURCE_UNAVAILABLE",
+            "fingerprint": None,
+            "message": (
+                f"No stored TLS certificate fingerprint for '{target}' in "
+                f"{'the offline corpus' if intel.mode == 'mock' else 'Shodan/Censys response'}."
+            ),
+        })
+        return result
+
+    # The refusal to probe is reported ahead of the stored-telemetry status:
+    # the caller must be able to see that an enabled probe was withheld, not
+    # infer it from an absent flag.
+    result["status"] = "probe_skipped_no_tor" if probe_refused else "STORED_TELEMETRY"
+    result["provenance"] = "STORED_TELEMETRY"
+    result["match"] = match_certificate_fingerprint(fingerprint, candidates or {}, subject=subject)
+    return result
+
+
+# ============================================================================ #
+# 8. Certificate Transparency Log Vector (crt.sh)
+# ============================================================================ #
+#
+# CT logs are a public, append-only record of every TLS certificate issued.
+# They cannot be censored, so an operator who publishes an onion address or a
+# private key inside a certificate SAN has permanently tied that identifier to
+# a named clearnet domain. This is passive: it queries a public log, never the
+# target.
+
+CT_LOG_URL = "https://crt.sh/?q={query}&output=json"
+CT_LOG_TTL_SECONDS = 3600
+CT_LOG_MAX_ROWS = 500
+
+
+def _ct_cache() -> dict:
+    """Process-local TTL cache for crt.sh responses.
+
+    Attribute-disclosure cases routinely re-query the same handful of domains, and
+    crt.sh is a volunteer-run service that rate-limits aggressively. The cache is
+    intentionally per-process: it is a courtesy and a performance aid, never a
+    trust boundary.
+    """
+    global _CT_CACHE
+    if _CT_CACHE is None:
+        _CT_CACHE = {}
+    return _CT_CACHE
+
+
+_CT_CACHE: Optional[Dict[str, Any]] = None
+
+
+def build_ct_log_url(domain: str) -> str:
+    """Build the crt.sh query URL for a domain.
+
+    Raises:
+        ValueError: if the domain is not allowlisted, preventing SSRF.
+    """
+    from urllib.parse import quote
+
+    clean = (domain or "").strip().lower().rstrip(".")
+    if not clean:
+        raise ValueError("Certificate Transparency lookup requires a domain.")
+
+    url = CT_LOG_URL.format(query=quote(clean, safe=""))
+    assert_allowed_external_intel_url(url)
+    return url
+
+
+def parse_ct_log_response(payload: Any) -> Dict[str, Any]:
+    """Parse a crt.sh JSON response into a normalized overlap report.
+
+    crt.sh returns a list of certificate rows, each with newline-separated
+    ``name_value`` SAN fields. Wildcards are kept but recorded separately: a
+    wildcard match is a weaker signal than an exact-name match.
+    """
+    if isinstance(payload, (str, bytes)):
+        try:
+            payload = json.loads(payload)
+        except json.JSONDecodeError as exc:
+            return {"status": "PARSE_ERROR", "error": f"crt.sh returned invalid JSON: {exc}", "subjects": []}
+
+    if not isinstance(payload, list):
+        return {"status": "PARSE_ERROR", "error": "crt.sh response was not a JSON array.", "subjects": []}
+
+    subjects: set = set()
+    wildcards: set = set()
+    issuers: set = set()
+    earliest = None
+    latest = None
+    truncated = False
+
+    for row in payload[:CT_LOG_MAX_ROWS]:
+        if not isinstance(row, dict):
+            continue
+        if len(payload) > CT_LOG_MAX_ROWS:
+            truncated = True
+
+        for name in str(row.get("name_value", "")).split("\n"):
+            clean = name.strip().lower().rstrip(".")
+            if not clean:
+                continue
+            if clean.startswith("*."):
+                wildcards.add(clean[2:])
+            else:
+                subjects.add(clean)
+
+        issuer = str(row.get("issuer_name", "")).strip()
+        if issuer:
+            issuers.add(issuer)
+
+        not_before = str(row.get("not_before", "")).strip()
+        if not_before:
+            earliest = not_before if earliest is None else min(earliest, not_before)
+            latest = not_before if latest is None else max(latest, not_before)
+
+    return {
+        "status": "OK",
+        "subjects": sorted(subjects),
+        "wildcard_subjects": sorted(wildcards),
+        "issuers": sorted(issuers),
+        "certificate_count": len(payload),
+        "truncated": truncated,
+        "earliest_not_before": earliest,
+        "latest_not_before": latest,
+    }
+
+
+def compute_ct_overlap(identifiers: List[str], ct_report: Dict[str, Any]) -> Dict[str, Any]:
+    """Measure overlap between a subject's known identifiers and a CT log report.
+
+    Only **exact** subject matches count toward evidence. A wildcard does not
+    disclose a specific name, so counting it would let any certificate issued for
+    ``*.example.com`` appear to leak every subdomain.
+    """
+    ct_subjects = set(ct_report.get("subjects", []) or [])
+    ct_wildcards = set(ct_report.get("wildcard_subjects", []) or [])
+
+    exact: List[str] = []
+    wildcard_only: List[str] = []
+
+    for identifier in identifiers or []:
+        clean = str(identifier).strip().lower().rstrip(".")
+        if not clean:
+            continue
+        if clean in ct_subjects:
+            exact.append(clean)
+        elif clean in ct_wildcards:
+            wildcard_only.append(clean)
+
+    has_data = bool(ct_subjects or ct_wildcards)
+    return {
+        "status": ct_report.get("status", "UNKNOWN"),
+        "has_data": has_data,
+        "exact_matches": sorted(set(exact)),
+        "wildcard_only_matches": sorted(set(wildcard_only)),
+        "ct_subjects": sorted(ct_subjects),
+        "ct_wildcard_subjects": sorted(ct_wildcards),
+        "overlap": sorted(set(exact)),
+        "strength": "strong" if exact else ("weak" if wildcard_only else "none"),
+        "usable_as_evidence": bool(exact),
+        "note": (
+            f"{len(set(exact))} exact subject match(es) found in the Certificate Transparency log."
+            if exact
+            else (
+                "Only wildcard coverage found; a wildcard does not disclose a specific name, "
+                "so this is not counted as disclosure."
+                if wildcard_only
+                else "No overlap between the subject's identifiers and the CT log."
+            )
+        ),
+    }
+
+
+def query_certificate_transparency(
+    domain: str,
+    identifiers: Optional[List[str]] = None,
+    use_cache: bool = True,
+) -> Dict[str, Any]:
+    """Query crt.sh for a domain and measure overlap with the subject's identifiers.
+
+    Fails soft: any network, allowlist, or parsing problem returns a report with
+    ``status != "OK"`` instead of raising, so a CT outage degrades the pipeline to
+    one fewer indicator rather than failing the investigation.
+    """
+    cache = _ct_cache()
+    key = canonicalize_target(domain)
+    cached = cache.get(key)
+    if use_cache and cached and (time.monotonic() - cached["fetched_at"]) < CT_LOG_TTL_SECONDS:
+        report = dict(cached["report"])
+        report["cache_hit"] = True
+        return report
+
+    try:
+        url = build_ct_log_url(domain)
+    except ValueError as exc:
+        return {"status": "BLOCKED", "error": str(exc), "subjects": [], "cache_hit": False}
+
+    try:
+        response = httpx.get(
+            url,
+            timeout=10.0,
+            follow_redirects=False,
+            headers={"User-Agent": "AETHER-Forensics/1.0 (Attribution-Engine)"},
+        )
+        response.raise_for_status()
+        report = parse_ct_log_response(response.text)
+    except Exception as exc:
+        logger.warning("Certificate Transparency lookup failed for %s: %s", key, exc)
+        return {
+            "status": "SOURCE_UNAVAILABLE",
+            "error": f"crt.sh unreachable: {exc}",
+            "subjects": [],
+            "cache_hit": False,
+        }
+
+    if use_cache:
+        cache[key] = {"fetched_at": time.monotonic(), "report": report}
+
+    report = dict(report)
+    report["cache_hit"] = False
+    if identifiers:
+        report["overlap_report"] = compute_ct_overlap(identifiers, report)
+    return report

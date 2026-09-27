@@ -50,7 +50,7 @@ def test_get_job_snapshot(client):
     job = job_res.json()
     assert job["id"] == job_id
     assert job["status"] in ("queued", "running", "complete")
-    assert len(job["modules"]) == 9
+    assert len(job["modules"]) == 10
 
 
 def test_job_execution_lifecycle_and_background_runner(db_session):
@@ -85,7 +85,7 @@ def test_job_execution_lifecycle_and_background_runner(db_session):
     assert updated_job is not None
     assert updated_job.status == "complete"
     assert updated_job.case_id is not None
-    assert len(updated_job.modules) == 9
+    assert len(updated_job.modules) == 10
     for m in updated_job.modules:
         assert m["status"] == "done"
 

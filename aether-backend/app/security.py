@@ -272,6 +272,58 @@ CLOUD_METADATA_IPS = {
     "100.100.100.200",  # Alibaba cloud metadata
 }
 
+# Outbound OSINT sources the engine is permitted to contact. AETHER fetches are
+# strictly allowlisted rather than filtered: an attribution engine that can be
+# pointed at an arbitrary URL is an SSRF primitive with a legal paper trail, and
+# an investigator who cannot be deanonymized by their own tooling should never
+# be able to aim that tooling at internal infrastructure.
+ALLOWED_EXTERNAL_INTEL_HOSTS = {
+    "crt.sh",
+    "www.crt.sh",
+    "api.shodan.io",
+    "search.censys.io",
+    "api.censys.io",
+}
+
+
+def is_allowed_external_intel_url(target: str) -> tuple[bool, str]:
+    """Validate a URL against the outbound OSINT allowlist.
+
+    Enforces HTTPS and an exact hostname match, so a path like
+    ``crt.sh/../../`` or a subdomain of an allowed host is rejected.
+    """
+    if not target or not target.strip():
+        return False, "External intel target cannot be empty"
+
+    url_to_check = target.strip()
+    if "://" not in url_to_check:
+        url_to_check = f"https://{url_to_check}"
+    try:
+        parsed = urlparse(url_to_check)
+    except Exception as e:
+        return False, f"Malformed external intel URL: {e}"
+
+    if parsed.scheme != "https":
+        return False, (
+            f"External intel fetches require https, got '{parsed.scheme}'. "
+            "Attribution telemetry is not collected over plaintext."
+        )
+
+    hostname = (parsed.hostname or "").strip().lower()
+    if hostname not in ALLOWED_EXTERNAL_INTEL_HOSTS:
+        return False, (
+            f"Host '{hostname}' is not in the AETHER external intel allowlist. "
+            "Add it deliberately to ALLOWED_EXTERNAL_INTEL_HOSTS if this is intended."
+        )
+    return True, ""
+
+
+def assert_allowed_external_intel_url(target: str) -> None:
+    """Raise ValueError if the URL is not an approved outbound OSINT source."""
+    safe, reason = is_allowed_external_intel_url(target)
+    if not safe:
+        raise ValueError(f"External intel fetch blocked by allowlist: {reason}")
+
 
 def is_safe_target_url(
     target: str,
