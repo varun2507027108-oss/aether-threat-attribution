@@ -83,6 +83,9 @@ def verify_investigator_auth(
     elif bearer and bearer.credentials:
         token = bearer.credentials.strip()
         method = "bearer_token"
+    elif "token" in request.query_params:
+        token = request.query_params["token"].strip()
+        method = "query_param_token"
 
     if not token or not hmac.compare_digest(token.encode("utf-8"), AETHER_API_KEY.encode("utf-8")):
         raise HTTPException(
@@ -270,9 +273,15 @@ CLOUD_METADATA_IPS = {
 }
 
 
-def is_safe_target_url(target: str, allow_onion: bool = True) -> tuple[bool, str]:
+def is_safe_target_url(
+    target: str,
+    allow_onion: bool = True,
+    direct_fetch: bool = False,
+) -> tuple[bool, str]:
     """Validate target URL or IP against SSRF, loopback, private RFC 1918, and metadata endpoints.
     
+    If direct_fetch is True, .onion addresses are strictly blocked because darknet
+    services must never be fetched over clearnet (investigator OPSEC protection).
     Returns (is_safe, error_reason).
     """
     if not target or len(target.strip()) < 3:
@@ -301,6 +310,11 @@ def is_safe_target_url(target: str, allow_onion: bool = True) -> tuple[bool, str
 
     # Onion targets
     if hostname.endswith(".onion"):
+        if direct_fetch:
+            return False, (
+                f"Direct clearnet fetch of .onion target '{hostname}' is blocked by OPSEC guard. "
+                "Tor hidden services are fetchable ONLY through the Tor SOCKS transport (get_onion_client)."
+            )
         if not allow_onion:
             return False, "Onion targets are not permitted in this configuration."
         # Validate onion format (v2 is 16 chars, v3 is 56 chars alphanumeric a-z2-7)
@@ -328,6 +342,22 @@ def is_safe_target_url(target: str, allow_onion: bool = True) -> tuple[bool, str
             return False, f"Target '{hostname}' is not a valid fully-qualified domain name."
 
     return True, ""
+
+
+def is_safe_direct_fetch(target: str) -> tuple[bool, str]:
+    """Validate whether target is safe for direct (non-proxy clearnet) HTTP fetch.
+    
+    Direct fetch of any .onion address is strictly prohibited to prevent
+    investigator deanonymization and public DNS leakage.
+    """
+    return is_safe_target_url(target, allow_onion=False, direct_fetch=True)
+
+
+def assert_safe_direct_fetch(target: str) -> None:
+    """Raise ValueError if direct (non-Tor) fetch of target is not permitted."""
+    safe, reason = is_safe_direct_fetch(target)
+    if not safe:
+        raise ValueError(f"Direct fetch blocked by OPSEC/SSRF guard: {reason}")
 
 
 # ---------- Audit Logging ---------- #

@@ -29,7 +29,7 @@ def test_start_investigation_onion_target(client):
         "mode": "demo",
     }
 
-    r = client.post("/api/cases/investigate", json=payload)
+    r = client.post("/api/cases/investigate?sync=true", json=payload)
     assert r.status_code == 200, r.text
     data = r.json()
 
@@ -99,7 +99,7 @@ def test_start_investigation_clearnet_ip(client):
         "mode": "auto",
     }
 
-    r = client.post("/api/cases/investigate", json=payload)
+    r = client.post("/api/cases/investigate?sync=true", json=payload)
     assert r.status_code == 200, r.text
     data = r.json()
 
@@ -111,7 +111,7 @@ def test_start_investigation_clearnet_ip(client):
 def test_list_cases_and_get_investigation(client):
     """Test listing all cases and retrieving investigation details for a specific case."""
     # First create via investigate
-    client.post("/api/cases/investigate", json={
+    client.post("/api/cases/investigate?sync=true", json={
         "case_name": "Test Listing Case",
         "evidence_id": "AT-2026-0101",
         "actor_name": "TestActor",
@@ -139,7 +139,7 @@ def test_list_cases_and_get_investigation(client):
 
 def test_export_stix_and_csv_from_investigated_case(client):
     """Verify STIX 2.1 and CSV export generate valid bundles for investigated cases."""
-    client.post("/api/cases/investigate", json={
+    client.post("/api/cases/investigate?sync=true", json={
         "case_name": "Export Validation Case",
         "evidence_id": "AT-2026-0102",
         "actor_name": "ExportActor",

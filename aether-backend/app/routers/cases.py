@@ -1,11 +1,15 @@
+import asyncio
 from datetime import datetime, timezone
+import random
+import uuid
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Response, status
+from fastapi.responses import JSONResponse
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.db import get_db
-from app.models import Case, CustodyRow
+from app.models import Case, CustodyRow, InvestigationJob
 from app.schemas import (
     EVIDENCE_ID_PATTERN,
     CaseCreate,
@@ -13,6 +17,7 @@ from app.schemas import (
     CaseOut,
     CustodyEntryCreate,
     CustodyEntryOut,
+    InvestigationJobAccepted,
     InvestigationResultOut,
     InvestigationStartRequest,
     VerifyResult,
@@ -25,7 +30,12 @@ from app.security import (
 )
 from app.services.anchor import checkpoint_if_needed, get_last_checkpoint
 from app.services.custody import GENESIS_HASH, CustodyChain, CustodyEntry
-from app.services.investigation import run_full_investigation
+from app.services.investigation import (
+    MODULE_DEFS,
+    run_full_investigation,
+    run_full_investigation_async,
+    run_investigation_job_background,
+)
 
 router = APIRouter(prefix="/api/cases", tags=["cases"])
 
@@ -73,12 +83,21 @@ def list_cases(
     return items
 
 
-@router.post("/investigate", response_model=InvestigationResultOut, status_code=200)
-def start_investigation(
+@router.post(
+    "/investigate",
+    response_model=None,
+    responses={
+        200: {"model": InvestigationResultOut, "description": "Synchronous investigation completed"},
+        202: {"model": InvestigationJobAccepted, "description": "Investigation job queued for async execution"},
+    },
+)
+async def start_investigation(
     payload: InvestigationStartRequest,
+    sync: bool = False,
+    response: Response = None,
     db: Session = Depends(get_db),
     principal: InvestigatorPrincipal = Depends(verify_investigator_auth),
-) -> InvestigationResultOut:
+):
     # SSRF Protection: In live and auto modes, strictly reject private, loopback, or metadata addresses
     if payload.mode != "demo":
         is_safe, reason = is_safe_target_url(payload.target)
@@ -88,22 +107,81 @@ def start_investigation(
                 detail=f"Security Policy: Target rejected by SSRF guard ({reason})",
             )
 
-    result = run_full_investigation(payload, db)
+    # Legacy synchronous execution
+    if sync:
+        result = await run_full_investigation_async(payload, db=db)
+        record_audit_log(
+            db=db,
+            operator=principal.operator,
+            action="START_INVESTIGATION",
+            case_id=result.case.evidence_id,
+            details={
+                "case_name": payload.case_name,
+                "target": payload.target,
+                "mode": payload.mode,
+                "confidence": result.attribution.get("confidence_score"),
+                "sync": True,
+            },
+        )
+        if response:
+            response.status_code = status.HTTP_200_OK
+        return result
+
+    # Asynchronous job execution (Single-worker Uvicorn in-memory task model; Arq/Redis for multi-worker)
+    job_id = f"job-{uuid.uuid4().hex[:12]}"
+    evidence_id = payload.evidence_id or f"AT-2026-{random.randint(1000, 9999)}"
+
+    # Ensure payload uses the determined evidence_id
+    payload_dict = payload.model_dump()
+    payload_dict["evidence_id"] = evidence_id
+    effective_payload = InvestigationStartRequest(**payload_dict)
+
+    initial_modules = [
+        {
+            "module": m["module"],
+            "name": m["name"],
+            "status": "pending",
+            "started_at": None,
+            "finished_at": None,
+            "summary": None,
+            "error": None,
+        }
+        for m in MODULE_DEFS
+    ]
+
+    job_row = InvestigationJob(
+        id=job_id,
+        case_id=None,
+        status="queued",
+        modules=initial_modules,
+    )
+    db.add(job_row)
+    db.commit()
+
+    # Launch background task via asyncio.create_task
+    asyncio.create_task(run_investigation_job_background(job_id, effective_payload, evidence_id))
 
     record_audit_log(
         db=db,
         operator=principal.operator,
-        action="START_INVESTIGATION",
-        case_id=result.case.evidence_id,  # references case
+        action="START_INVESTIGATION_JOB",
+        case_id=evidence_id,
         details={
+            "job_id": job_id,
             "case_name": payload.case_name,
             "target": payload.target,
             "mode": payload.mode,
-            "confidence": result.attribution.get("confidence_score"),
+            "sync": False,
         },
     )
 
-    return result
+    accepted = InvestigationJobAccepted(
+        job_id=job_id,
+        status_url=f"/api/jobs/{job_id}",
+        events_url=f"/api/jobs/{job_id}/events",
+        evidence_id=evidence_id,
+    )
+    return JSONResponse(status_code=status.HTTP_202_ACCEPTED, content=accepted.model_dump())
 
 
 @router.get("/{evidence_id}/investigation", response_model=InvestigationResultOut)

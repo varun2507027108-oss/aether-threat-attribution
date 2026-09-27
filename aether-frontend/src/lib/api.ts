@@ -636,15 +636,181 @@ export async function fetchCaseInvestigation(
   };
 }
 
+export interface InvestigationJobAccepted {
+  job_id: string;
+  status_url: string;
+  events_url: string;
+  evidence_id: string;
+}
+
+export interface JobModuleStatus {
+  module: string;
+  status: "pending" | "running" | "done" | "failed" | "skipped";
+  started_at?: string | null;
+  finished_at?: string | null;
+  summary?: string | null;
+}
+
+export interface InvestigationJobSnapshot {
+  id: string;
+  case_id: number;
+  status: "queued" | "running" | "partial" | "complete" | "failed";
+  error?: string | null;
+  modules: JobModuleStatus[];
+  created_at?: string | null;
+  updated_at?: string | null;
+}
+
+export interface StartInvestigationResponse {
+  job?: InvestigationJobAccepted;
+  data?: InvestigationResult;
+  isLive: boolean;
+}
+
+export async function fetchJobSnapshot(
+  jobId: string
+): Promise<{ snapshot?: InvestigationJobSnapshot; isLive: boolean }> {
+  try {
+    const res = await fetch(`${API_BASE}/api/jobs/${jobId}`, {
+      headers: getAuthHeaders(),
+    });
+    if (res.ok) {
+      const snapshot: InvestigationJobSnapshot = await res.json();
+      return { snapshot, isLive: true };
+    }
+  } catch (err) {
+    console.warn("Fetch job snapshot error:", err);
+  }
+  return { isLive: false };
+}
+
+export function subscribeJobEvents(
+  jobId: string,
+  onEvent: (event: { type: string; data: any }) => void,
+  onError?: (err: any) => void
+): () => void {
+  let isClosed = false;
+  let eventSource: EventSource | null = null;
+  let pollInterval: NodeJS.Timeout | null = null;
+
+  const cleanup = () => {
+    isClosed = true;
+    if (eventSource) {
+      eventSource.close();
+      eventSource = null;
+    }
+    if (pollInterval) {
+      clearInterval(pollInterval);
+      pollInterval = null;
+    }
+  };
+
+  const startPolling = () => {
+    if (pollInterval || isClosed) return;
+    pollInterval = setInterval(async () => {
+      if (isClosed) return;
+      try {
+        const res = await fetch(`${API_BASE}/api/jobs/${jobId}`, {
+          headers: getAuthHeaders(),
+        });
+        if (res.ok) {
+          const snapshot: InvestigationJobSnapshot = await res.json();
+          onEvent({ type: "snapshot", data: snapshot });
+          if (["complete", "partial", "failed"].includes(snapshot.status)) {
+            onEvent({
+              type: "terminal",
+              data: {
+                job_id: jobId,
+                status: snapshot.status,
+                error: snapshot.error,
+              },
+            });
+            cleanup();
+          }
+        }
+      } catch (err) {
+        if (onError) onError(err);
+      }
+    }, 2000);
+  };
+
+  try {
+    if (typeof window !== "undefined" && typeof window.EventSource !== "undefined") {
+      const apiKey = getInvestigatorApiKey();
+      const tokenQuery = apiKey ? `?token=${encodeURIComponent(apiKey)}` : "";
+      const sseUrl = `${API_BASE}/api/jobs/${jobId}/events${tokenQuery}`;
+
+      eventSource = new EventSource(sseUrl);
+
+      eventSource.addEventListener("snapshot", (e) => {
+        try {
+          const data = JSON.parse(e.data);
+          onEvent({ type: "snapshot", data });
+        } catch (err) {
+          console.warn("SSE snapshot parse error", err);
+        }
+      });
+
+      eventSource.addEventListener("module_update", (e) => {
+        try {
+          const data = JSON.parse(e.data);
+          onEvent({ type: "module_update", data });
+        } catch (err) {
+          console.warn("SSE module_update parse error", err);
+        }
+      });
+
+      eventSource.addEventListener("job_status", (e) => {
+        try {
+          const data = JSON.parse(e.data);
+          onEvent({ type: "job_status", data });
+        } catch (err) {
+          console.warn("SSE job_status parse error", err);
+        }
+      });
+
+      eventSource.addEventListener("terminal", (e) => {
+        try {
+          const data = JSON.parse(e.data);
+          onEvent({ type: "terminal", data });
+        } catch (err) {
+          console.warn("SSE terminal parse error", err);
+        }
+        cleanup();
+      });
+
+      eventSource.onerror = (err) => {
+        console.warn("EventSource stream disconnected, falling back to 2s polling:", err);
+        if (eventSource) {
+          eventSource.close();
+          eventSource = null;
+        }
+        startPolling();
+      };
+    } else {
+      startPolling();
+    }
+  } catch (err) {
+    console.warn("Failed to initialize EventSource, using polling fallback:", err);
+    startPolling();
+  }
+
+  return cleanup;
+}
+
 export async function startInvestigation(
   payload: InvestigationRequest
-): Promise<{ data: InvestigationResult; isLive: boolean }> {
+): Promise<StartInvestigationResponse> {
   try {
     const res = await fetch(`${API_BASE}/api/cases/investigate`, {
       method: "POST",
       headers: { "Content-Type": "application/json", ...getAuthHeaders() },
       body: JSON.stringify(payload),
     });
+    if (res.status === 202) {
+      const job: InvestigationJobAccepted = await res.json();
+      return { job, isLive: true };
+    }
     if (res.ok) {
       const data: InvestigationResult = await res.json();
       return { data, isLive: true };

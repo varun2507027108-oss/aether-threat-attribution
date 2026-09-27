@@ -331,7 +331,7 @@ def test_investigation_and_custody_create_audit_logs(client: TestClient):
         "target_type": "onion",
         "mode": "demo",
     }
-    inv_res = client.post("/api/cases/investigate", json=inv_payload, headers=VALID_HEADERS)
+    inv_res = client.post("/api/cases/investigate?sync=true", json=inv_payload, headers=VALID_HEADERS)
     assert inv_res.status_code == 200
 
     # 2. Query audit logs

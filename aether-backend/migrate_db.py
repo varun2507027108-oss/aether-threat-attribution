@@ -41,6 +41,6 @@ if os.path.exists(db_path):
     conn.commit()
     conn.close()
 
-# Ensure any new tables (evidence_records, evidence_correlations, audit_logs, custody_checkpoints) are created
+# Ensure any new tables (evidence_records, evidence_correlations, audit_logs, custody_checkpoints, investigation_jobs) are created
 Base.metadata.create_all(bind=engine)
 print("All tables and columns migrated successfully!")

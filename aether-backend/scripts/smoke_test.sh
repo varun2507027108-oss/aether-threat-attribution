@@ -35,6 +35,20 @@ curl -sf -X POST "$BASE/api/cases/$EID/custody" -H "Content-Type: application/js
 echo "== verify chain (expect valid: true) =="
 curl -sf "$BASE/api/cases/$EID/verify" | python3 -m json.tool
 
+echo "== async investigation (202 Accepted + job polling) =="
+ASYNC_JOB=$(curl -sf -X POST "$BASE/api/cases/investigate" -H "Content-Type: application/json" \
+  -d '{"case_name":"Smoke Async","evidence_id":"AT-SMOKE-ASYNC","actor_name":"SmokeActor","target":"185.220.101.42","target_type":"ip","mode":"demo"}')
+echo "$ASYNC_JOB" | python3 -m json.tool
+JOB_ID=$(python3 -c "import json; print(json.loads('''$ASYNC_JOB''')['job_id'])")
+
+# Poll job snapshot
+sleep 1
+curl -sf "$BASE/api/jobs/$JOB_ID" | python3 -m json.tool
+
+echo "== sync investigation (?sync=true legacy compat) =="
+curl -sf -X POST "$BASE/api/cases/investigate?sync=true" -H "Content-Type: application/json" \
+  -d '{"case_name":"Smoke Sync","evidence_id":"AT-SMOKE-SYNC","actor_name":"SmokeActorSync","target":"185.220.101.42","target_type":"ip","mode":"demo"}' | python3 -c "import sys, json; d=json.load(sys.stdin); print('Sync complete:', d['case']['evidence_id'], 'confidence:', d['attribution']['confidence_score'])"
+
 echo "== export STIX (saved to /tmp/aether_stix.json) =="
 curl -sf "$BASE/api/cases/$EID/export/stix" -o /tmp/aether_stix.json
 python3 -c "import json; d=json.load(open('/tmp/aether_stix.json')); print(d['type'], len(d['objects']), 'objects')"

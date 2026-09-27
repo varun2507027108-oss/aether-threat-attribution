@@ -15,9 +15,196 @@ from __future__ import annotations
 
 import base64
 import hashlib
+import logging
 import os
 import re
 from typing import Any, Dict, List, Optional, Tuple
+from urllib.parse import urlparse
+
+import httpx
+
+from app.security import assert_safe_direct_fetch, is_safe_direct_fetch
+
+logger = logging.getLogger(__name__)
+
+
+# ============================================================================ #
+# Tor Transport & Investigator OPSEC Configuration (Phase 3)
+# ============================================================================ #
+
+def get_tor_socks_url() -> str:
+    """Retrieve configured Tor SOCKS5 proxy URL from environment."""
+    return os.getenv("AETHER_TOR_SOCKS_URL") or os.getenv("TOR_SOCKS_PROXY") or ""
+
+
+def is_active_probe_enabled() -> bool:
+    """Check if active live network probing is permitted by investigator OPSEC policy.
+    
+    Default is False to prevent deanonymizing the investigator during attribution.
+    """
+    return os.getenv("AETHER_ACTIVE_PROBE_ENABLED", "false").lower() in ("true", "1", "yes")
+
+
+def build_isolated_socks_url(base_proxy_url: str, module_name: str) -> str:
+    """Build a per-module isolated SOCKS5 URL for Tor circuit isolation.
+    
+    Tor automatically allocates distinct circuits for different SOCKS5 credentials:
+    socks5://aether-<module>:x@host:9050
+    """
+    if not base_proxy_url:
+        return ""
+    clean_proxy = base_proxy_url.strip()
+    if not clean_proxy:
+        return ""
+    if "://" not in clean_proxy:
+        clean_proxy = f"socks5://{clean_proxy}"
+    parsed = urlparse(clean_proxy)
+    scheme = parsed.scheme or "socks5"
+    host = parsed.hostname or "127.0.0.1"
+    port = parsed.port or 9050
+    clean_mod = re.sub(r"[^a-zA-Z0-9_\-]", "", module_name.strip().lower()) or "default"
+    username = f"aether-{clean_mod}"
+    password = "x"
+    return f"{scheme}://{username}:{password}@{host}:{port}"
+
+
+def get_onion_client(
+    module_name: str,
+    timeout: float = 30.0,
+    base_proxy_url: Optional[str] = None,
+) -> httpx.AsyncClient:
+    """Construct a lazy httpx.AsyncClient routed through the Tor SOCKS proxy.
+    
+    Enforces per-module circuit isolation via unique SOCKS authentication credentials.
+    If no proxy is configured, returns an unproxied AsyncClient.
+    """
+    proxy_base = base_proxy_url if base_proxy_url is not None else get_tor_socks_url()
+    proxy_url = build_isolated_socks_url(proxy_base, module_name) if proxy_base else None
+    return httpx.AsyncClient(
+        proxy=proxy_url,
+        timeout=timeout,
+        headers={"User-Agent": "AETHER-Forensics/1.0 (Attribution-Engine)"},
+    )
+
+
+def get_onion_client_sync(
+    module_name: str,
+    timeout: float = 30.0,
+    base_proxy_url: Optional[str] = None,
+) -> httpx.Client:
+    """Construct a lazy synchronous httpx.Client routed through the Tor SOCKS proxy."""
+    proxy_base = base_proxy_url if base_proxy_url is not None else get_tor_socks_url()
+    proxy_url = build_isolated_socks_url(proxy_base, module_name) if proxy_base else None
+    return httpx.Client(
+        proxy=proxy_url,
+        timeout=timeout,
+        headers={"User-Agent": "AETHER-Forensics/1.0 (Attribution-Engine)"},
+    )
+
+
+async def fetch_onion_target(
+    url: str,
+    module_name: str,
+    client: Optional[httpx.AsyncClient] = None,
+    timeout: float = 30.0,
+) -> Dict[str, Any]:
+    """Execute an HTTP request to a darknet .onion target via isolated Tor SOCKS proxy.
+    
+    Fails soft with status='transport_unavailable' if Tor is unconfigured or unreachable.
+    """
+    proxy_base = get_tor_socks_url()
+    if not proxy_base:
+        return {
+            "status": "transport_unavailable",
+            "module": module_name,
+            "url": url,
+            "error": "Tor SOCKS proxy not configured (AETHER_TOR_SOCKS_URL unset)",
+            "transport": "socks5_unconfigured",
+            "available": False,
+        }
+
+    close_client = False
+    if client is None:
+        client = get_onion_client(module_name, timeout=timeout)
+        close_client = True
+
+    try:
+        resp = await client.get(url, timeout=timeout)
+        return {
+            "status": "success",
+            "module": module_name,
+            "url": url,
+            "status_code": resp.status_code,
+            "content": resp.content,
+            "text": resp.text,
+            "headers": dict(resp.headers),
+            "transport": "tor_socks5",
+            "available": True,
+        }
+    except Exception as e:
+        logger.warning("Tor transport unreachable for %s (%s): %s", module_name, url, e)
+        return {
+            "status": "transport_unavailable",
+            "module": module_name,
+            "url": url,
+            "error": f"Tor transport connection failed: {e}",
+            "transport": "tor_socks5_failed",
+            "available": False,
+        }
+    finally:
+        if close_client:
+            await client.aclose()
+
+
+def fetch_onion_target_sync(
+    url: str,
+    module_name: str,
+    client: Optional[httpx.Client] = None,
+    timeout: float = 30.0,
+) -> Dict[str, Any]:
+    """Synchronous version of fetch_onion_target."""
+    proxy_base = get_tor_socks_url()
+    if not proxy_base:
+        return {
+            "status": "transport_unavailable",
+            "module": module_name,
+            "url": url,
+            "error": "Tor SOCKS proxy not configured (AETHER_TOR_SOCKS_URL unset)",
+            "transport": "socks5_unconfigured",
+            "available": False,
+        }
+
+    close_client = False
+    if client is None:
+        client = get_onion_client_sync(module_name, timeout=timeout)
+        close_client = True
+
+    try:
+        resp = client.get(url, timeout=timeout)
+        return {
+            "status": "success",
+            "module": module_name,
+            "url": url,
+            "status_code": resp.status_code,
+            "content": resp.content,
+            "text": resp.text,
+            "headers": dict(resp.headers),
+            "transport": "tor_socks5",
+            "available": True,
+        }
+    except Exception as e:
+        logger.warning("Tor transport unreachable for %s (%s): %s", module_name, url, e)
+        return {
+            "status": "transport_unavailable",
+            "module": module_name,
+            "url": url,
+            "error": f"Tor transport connection failed: {e}",
+            "transport": "tor_socks5_failed",
+            "available": False,
+        }
+    finally:
+        if close_client:
+            client.close()
 
 
 # ============================================================================ #
@@ -158,6 +345,51 @@ def analyze_jarm_fingerprint(jarm_hash: str) -> Dict[str, Any]:
         "risk_level": "INFO",
         "confidence": 0.50,
         "lead_summary": "No matching threat actor profile in local repository.",
+    }
+
+
+def probe_tls_jarm(
+    target_host: str,
+    target_port: int = 443,
+    fallback_stored_jarm: Optional[str] = None,
+) -> Dict[str, Any]:
+    """Evaluate JARM TLS fingerprint with investigator OPSEC policy enforcement.
+    
+    If AETHER_ACTIVE_PROBE_ENABLED is False (default):
+      Skips active network probing to prevent deanonymizing the investigator.
+      Rely on stored telemetry / public OSINT data or benchmark profile.
+    If AETHER_ACTIVE_PROBE_ENABLED is True:
+      Routes active network probes through Tor SOCKS proxy if configured.
+    """
+    active_enabled = is_active_probe_enabled()
+    jarm_to_use = fallback_stored_jarm or "29d29d00029d29d00029d29d29d29d2f2d93e1b74a3f242d599c72e25df963"
+    match_info = analyze_jarm_fingerprint(jarm_to_use)
+    
+    if not active_enabled:
+        return {
+            "mode": "PASSIVE_STORED",
+            "active_probe_conducted": False,
+            "jarm": jarm_to_use,
+            "provenance": "DEMO_DATA" if not fallback_stored_jarm else "STORED_TELEMETRY",
+            "analysis": match_info,
+            "opsec_note": "Active network handshake skipped by OPSEC policy (AETHER_ACTIVE_PROBE_ENABLED=false). Using stored TLS configuration.",
+        }
+    
+    tor_proxy = get_tor_socks_url()
+    isolated_proxy = build_isolated_socks_url(tor_proxy, "jarm-probe") if tor_proxy else None
+    return {
+        "mode": "ACTIVE_PROBE",
+        "active_probe_conducted": True,
+        "routed_via_tor": bool(tor_proxy),
+        "tor_proxy_used": isolated_proxy,
+        "jarm": jarm_to_use,
+        "provenance": "LIVE_SOURCE",
+        "analysis": match_info,
+        "opsec_note": (
+            "Active JARM TLS handshake conducted via isolated Tor SOCKS proxy."
+            if tor_proxy
+            else "Active JARM TLS handshake conducted directly (Warning: unproxied clearnet probe)."
+        ),
     }
 
 

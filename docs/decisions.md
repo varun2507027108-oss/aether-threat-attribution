@@ -55,3 +55,22 @@ This document records architectural, cryptographic, and operational decisions ma
      - Extended CSV formula-injection defense (`sanitize_csv_cell` stripping/escaping `=,+,-,@`) to `signature` and `key_id`.
      - Added dedicated canonical custody chain export endpoint `GET /api/cases/{evidence_id}/export/custody`.
 
+---
+
+## Decision 004 — Tor Transport, Circuit Isolation & Investigator OPSEC (Phase 3)
+- **Date**: 2026-09-27
+- **Status**: Accepted
+- **Context**: In threat attribution against darknet threat actors, investigative actions must prevent investigator deanonymization. Direct clearnet queries to `.onion` sites leak queries to local ISPs and exit nodes, while unisolated Tor requests allow adversaries to correlate concurrent requests from different modules to the same investigator session.
+- **Decisions**:
+  1. *Tor Proxy Service Selection*:
+     - Added `peterdavehello/tor-socks-proxy:latest` to `docker-compose.yml` exposing SOCKS5 on `127.0.0.1:9050:9050`.
+     - Configured backend environment with `AETHER_TOR_SOCKS_URL=socks5://tor:9050` in Compose, while leaving it unset by default in local `.env.example` to preserve the zero-Docker zero-config SQLite development path.
+  2. *Per-Module Circuit Isolation*:
+     - Implemented `build_isolated_socks_url(base_proxy_url, module_name)` to inject per-module authentication credentials (`socks5://aether-<module>:x@host:port`). Tor automatically assigns separate virtual circuits based on the SOCKS username, ensuring that requests from different modules (e.g. favicon fetch vs. TLS probe vs. text scraper) exit through different Tor circuits and cannot be correlated by darknet operators.
+  3. *SSRF & OPSEC Guard Against Direct Onion Fetch*:
+     - Updated `app/security.py` with `is_safe_direct_fetch(target)` and `assert_safe_direct_fetch(target)`. Direct clearnet HTTP requests to any `.onion` domain are strictly blocked. Onion addresses are only allowed through the isolated Tor SOCKS transport via `get_onion_client()`.
+  4. *Graceful Degradation*:
+     - Implemented `fetch_onion_target()` and `fetch_onion_target_sync()` in `app/services/intel.py`. If the Tor SOCKS proxy is unconfigured or unreachable, the module catches the error, logs a warning, and returns an explicit `status: "transport_unavailable"` payload without raising exceptions or breaking the investigation pipeline.
+  5. *Investigator OPSEC Probing Flag*:
+     - Added `AETHER_ACTIVE_PROBE_ENABLED` (default `false`). When false, active JARM/TLS network handshakes are skipped, relying on stored telemetry and public benchmark data. When true, probes are routed through the Tor proxy with circuit isolation.
+

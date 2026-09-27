@@ -44,6 +44,9 @@ class Case(Base):
     audit_logs: Mapped[list["AuditLog"]] = relationship(
         back_populates="case", cascade="all, delete-orphan", order_by="AuditLog.id"
     )
+    jobs: Mapped[list["InvestigationJob"]] = relationship(
+        back_populates="case", cascade="all, delete-orphan", order_by="InvestigationJob.created_at.desc()"
+    )
 
 
 class CustodyRow(Base):
@@ -127,4 +130,19 @@ class AuditLog(Base):
     details: Mapped[dict] = mapped_column(JSON, default=dict)
 
     case: Mapped[Case] = relationship(back_populates="audit_logs")
+
+
+class InvestigationJob(Base):
+    """Asynchronous background job for forensic investigation pipeline."""
+    __tablename__ = "investigation_jobs"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    case_id: Mapped[int | None] = mapped_column(ForeignKey("cases.id", ondelete="CASCADE"), index=True, nullable=True)
+    status: Mapped[str] = mapped_column(String(32), default="queued")  # queued, running, partial, complete, failed
+    error: Mapped[str | None] = mapped_column(Text, nullable=True, default=None)
+    modules: Mapped[list] = mapped_column(JSON, default=list)  # list of {module, name, status, started_at, finished_at, summary, error}
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, onupdate=_utcnow)
+
+    case: Mapped[Case | None] = relationship(back_populates="jobs")
 

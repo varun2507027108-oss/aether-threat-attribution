@@ -225,3 +225,36 @@ class VerifyResult(BaseModel):
     anchor_type: str = "internal"
     failure_layer: str | None = None
     signed_count: int = 0
+
+
+# ---------- Investigation Job & Streaming Schemas (Phase 4) ---------- #
+
+class InvestigationJobAccepted(BaseModel):
+    job_id: str
+    status_url: str
+    events_url: str
+    evidence_id: str
+
+
+class JobModuleStatus(BaseModel):
+    module: str
+    name: str
+    status: str  # pending | running | done | failed | skipped
+    started_at: str | None = None
+    finished_at: str | None = None
+    summary: str | None = None
+    error: str | None = None
+
+
+class InvestigationJobOut(BaseModel):
+    id: str
+    case_id: int | None = None
+    evidence_id: str | None = None
+    status: str  # queued | running | partial | complete | failed
+    error: str | None = None
+    modules: list[dict] = Field(default_factory=list)
+    created_at: str | None = None
+    updated_at: str | None = None
+    result: dict | None = None
+
+    model_config = ConfigDict(from_attributes=True)

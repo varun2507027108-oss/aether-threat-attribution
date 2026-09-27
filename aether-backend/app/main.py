@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session
 
 from app.db import Base, engine, get_db
 from app.models import AuditLog
-from app.routers import analysis, cases, export
+from app.routers import analysis, cases, export, jobs
 from app.routers.cases import verify_custody_chain
 from app.schemas import AuditLogOut, VerifyResult
 from app.security import (
@@ -95,6 +95,7 @@ async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONR
 app.include_router(cases.router)
 app.include_router(export.router)
 app.include_router(analysis.router)
+app.include_router(jobs.router)
 
 
 # ---------- Public & Utility Endpoints ---------- #
