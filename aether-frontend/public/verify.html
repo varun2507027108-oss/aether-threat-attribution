@@ -1,0 +1,741 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AETHER | Independent Custody Chain Verifier</title>
+<style>
+/* =====================================================================
+   AETHER - DESIGN SYSTEM
+   Mirrors index.html exactly: 0px radius, 1px solid borders, #000/#fff
+   palette, monospace data type. Zero dependencies, zero network calls.
+   ===================================================================== */
+:root {
+  --black: #000000;
+  --white: #ffffff;
+  --slate-50: #f8fafc;
+  --slate-200: #e2e8f0;
+  --slate-900: #0f172a;
+  --border: 1px solid var(--black);
+  --border-soft: 1px solid var(--slate-200);
+  --font-mono: ui-monospace, "SF Mono", "Cascadia Mono", Consolas, "Liberation Mono", Menlo, monospace;
+  --font-sans: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+}
+*, *::before, *::after { box-sizing: border-box; border-radius: 0 !important; box-shadow: none !important; text-shadow: none !important; }
+html, body { margin: 0; padding: 0; background: var(--white); color: var(--black); font-family: var(--font-sans); font-size: 13px; line-height: 1.5; }
+body { min-height: 100vh; display: flex; flex-direction: column; }
+
+.app-header { display: flex; align-items: stretch; justify-content: space-between; border-bottom: var(--border); background: var(--white); }
+.brand { display: flex; align-items: center; gap: 14px; padding: 12px 20px; border-right: var(--border); }
+.brand-mark { width: 28px; height: 28px; border: 2px solid var(--black); display: grid; place-items: center; font-family: var(--font-mono); font-weight: 700; font-size: 15px; }
+.brand-name { font-family: var(--font-mono); font-weight: 700; font-size: 16px; letter-spacing: 0.24em; }
+.brand-sub { font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--slate-900); }
+.header-meta { display: flex; align-items: stretch; font-family: var(--font-mono); font-size: 11px; }
+.meta-cell { padding: 12px 20px; border-left: var(--border); display: flex; flex-direction: column; gap: 2px; }
+.meta-label { font-size: 9px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--slate-900); }
+.meta-value { font-weight: 700; }
+
+.wrap { flex: 1; width: 100%; max-width: 1180px; margin: 0 auto; padding: 24px 20px 60px; }
+h1 { font-family: var(--font-mono); font-size: 20px; letter-spacing: 0.1em; text-transform: uppercase; margin: 0 0 4px; }
+.lede { color: var(--slate-900); max-width: 78ch; margin: 0 0 20px; }
+.lede code { font-family: var(--font-mono); font-size: 12px; background: var(--slate-50); padding: 1px 4px; border: var(--border-soft); }
+
+.grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+@media (max-width: 860px) { .grid { grid-template-columns: 1fr; } .header-meta { display: none; } }
+
+.card { border: var(--border); background: var(--white); }
+.card-head { border-bottom: var(--border); padding: 10px 14px; font-family: var(--font-mono); font-size: 11px; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; display: flex; justify-content: space-between; align-items: center; gap: 10px; }
+.card-body { padding: 14px; }
+
+.btn { appearance: none; background: var(--black); color: var(--white); border: 1px solid var(--black); padding: 9px 18px; font-family: var(--font-mono); font-size: 12px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; cursor: pointer; }
+.btn:hover { background: var(--white); color: var(--black); }
+.btn:focus-visible { outline: 2px solid var(--black); outline-offset: 2px; }
+.btn:disabled { background: var(--slate-200); color: var(--slate-900); border-color: var(--slate-200); cursor: not-allowed; }
+.btn.secondary { background: var(--white); color: var(--black); }
+.btn.secondary:hover { background: var(--black); color: var(--white); }
+
+.input { width: 100%; border: 1px solid var(--black); background: var(--white); color: var(--black); padding: 9px 12px; font-family: var(--font-mono); font-size: 12px; }
+.input:focus { outline: 2px solid var(--black); outline-offset: 0; }
+textarea.input { min-height: 96px; resize: vertical; }
+
+.dropzone { border: 2px dashed var(--slate-200); padding: 26px 16px; text-align: center; font-family: var(--font-mono); font-size: 12px; color: var(--slate-900); cursor: pointer; background: var(--slate-50); }
+.dropzone.over { border-color: var(--black); background: var(--slate-200); color: var(--black); }
+.row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+.row + .row { margin-top: 12px; }
+label.field { display: block; font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase; margin-bottom: 5px; }
+.hint { font-family: var(--font-mono); font-size: 10px; color: var(--slate-900); margin-top: 6px; }
+
+.verdict { border: var(--border); padding: 16px; font-family: var(--font-mono); }
+.verdict.ok { background: var(--white); border-color: var(--black); }
+.verdict.bad { background: var(--slate-900); color: var(--white); border-color: var(--black); }
+.verdict.warn { background: var(--slate-50); border-color: var(--black); border-left: 8px solid var(--black); }
+.verdict-title { font-size: 16px; font-weight: 700; letter-spacing: 0.14em; text-transform: uppercase; margin-bottom: 8px; }
+.verdict-line { font-size: 12px; }
+.verdict-line b { font-weight: 700; }
+.hashline { word-break: break-all; }
+
+.stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); border: var(--border); }
+.stat { border-right: var(--border-soft); border-bottom: var(--border-soft); padding: 10px 12px; }
+.stat-label { font-family: var(--font-mono); font-size: 9px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--slate-900); }
+.stat-value { font-family: var(--font-mono); font-size: 15px; font-weight: 700; margin-top: 3px; word-break: break-all; }
+.badge { display: inline-block; border: 1px solid var(--black); padding: 1px 8px; font-family: var(--font-mono); font-size: 10px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; }
+.badge.solid { background: var(--black); color: var(--white); }
+.badge.invert { background: var(--slate-900); color: var(--white); }
+
+table.data { width: 100%; border-collapse: collapse; font-family: var(--font-mono); font-size: 12px; }
+table.data th { text-align: left; border-bottom: var(--border); padding: 8px 10px; font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase; }
+table.data td { border-bottom: var(--border-soft); padding: 7px 10px; vertical-align: top; word-break: break-word; }
+table.data tr.ok td:first-child { border-left: 6px solid var(--black); }
+table.data tr.broken td { background: var(--slate-900); color: var(--white); }
+table.data tr.broken td:first-child { border-left: 6px solid var(--white); }
+table.data tr.unlinked td { background: var(--slate-50); }
+table.data td.seq { width: 52px; font-weight: 700; }
+table.data td.status { width: 108px; font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase; }
+table.data td.mono-small { font-size: 10px; color: var(--slate-900); }
+table.data tr.broken td.mono-small { color: var(--slate-200); }
+
+.legal { font-size: 11px; color: var(--slate-900); border-left: 4px solid var(--black); padding: 10px 12px; background: var(--slate-50); }
+.legal b { color: var(--black); }
+footer.app-footer { border-top: var(--border); padding: 14px 20px; font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--slate-900); display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+a { color: var(--black); }
+.hidden { display: none !important; }
+.sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+</style>
+</head>
+<body>
+
+<header class="app-header">
+  <div class="brand">
+    <div class="brand-mark" aria-hidden="true">A</div>
+    <div>
+      <div class="brand-name">AETHER</div>
+      <div class="brand-sub">Independent Chain Verifier</div>
+    </div>
+  </div>
+  <div class="header-meta">
+    <div class="meta-cell"><span class="meta-label">Statute</span><span class="meta-value">BSA 2023 s.63</span></div>
+    <div class="meta-cell"><span class="meta-label">Algorithm</span><span class="meta-value">SHA-256</span></div>
+    <div class="meta-cell"><span class="meta-label">Network</span><span class="meta-value" id="net-state">OFFLINE</span></div>
+  </div>
+</header>
+
+<main class="wrap">
+  <h1>Custody Chain Verification</h1>
+  <p class="lede">
+    Load an exported AETHER custody ledger (<code>aether_custody_ledger_*.csv</code>) to independently recompute
+    every SHA-256 link in the chain of custody. This page runs entirely in your browser: no file, no case identifier,
+    and no key material is transmitted anywhere. Verification is exactly the procedure described under
+    <b>Section 63, Bharatiya Sakshya Adhiniyam, 2023 (formerly s.65B, Indian Evidence Act, 1872)</b> &mdash; the
+    output here is a technical integrity finding, not a certificate of authenticity.
+  </p>
+
+  <div class="grid">
+    <section class="card" aria-labelledby="load-h">
+      <div class="card-head"><span id="load-h">1 &middot; Load ledger</span><span id="row-count" class="badge">0 entries</span></div>
+      <div class="card-body">
+        <div class="dropzone" id="dropzone" tabindex="0" role="button" aria-describedby="drop-hint">
+          Drop <code>aether_custody_ledger_*.csv</code> here, or click to choose a file
+        </div>
+        <p class="hint" id="drop-hint">The CSV is parsed in-page with an RFC 4180 parser, so quoted payloads containing commas and newlines are handled correctly.</p>
+        <input type="file" id="file-input" accept=".csv,text/csv" class="sr-only">
+        <div class="row">
+          <button type="button" class="btn" id="btn-verify">Verify chain</button>
+          <button type="button" class="btn secondary" id="btn-sample">Load sample ledger</button>
+          <button type="button" class="btn secondary" id="btn-sample-bad">Load tampered sample</button>
+        </div>
+      </div>
+    </section>
+
+    <section class="card" aria-labelledby="key-h">
+      <div class="card-head"><span id="key-h">2 &middot; Optional signature check</span><span class="badge" id="ed25519-support">checking</span></div>
+      <div class="card-body">
+        <label class="field" for="pubkey">Ed25519 public key (base64, raw 32 bytes)</label>
+        <input type="text" class="input" id="pubkey" placeholder="paste AETHER_SIGNING_PUBLIC_KEY to enable" spellcheck="false" autocomplete="off">
+        <p class="hint" id="key-hint">
+          Chain integrity alone detects edits. A signature check additionally defeats the <b>recompute attack</b>, where
+          an attacker edits one entry and re-hashes every entry after it &mdash; the hash chain still verifies, but the
+          signature does not.
+        </p>
+      </div>
+    </section>
+  </div>
+
+  <section class="mt" id="verdict-section" hidden aria-live="polite">
+    <div class="verdict" id="verdict">
+      <div class="verdict-title" id="verdict-title">&mdash;</div>
+      <div class="verdict-line" id="verdict-body"></div>
+    </div>
+  </section>
+
+  <section class="mt" id="stats-section" hidden>
+    <div class="stats" id="stats"></div>
+  </section>
+
+  <section class="mt" id="table-section" hidden>
+    <div class="card">
+      <div class="card-head"><span>3 &middot; Entry-by-entry recomputation</span><span class="badge" id="table-summary">&mdash;</span></div>
+      <div style="overflow-x:auto">
+        <table class="data">
+          <thead>
+            <tr>
+              <th>Seq</th>
+              <th>Result</th>
+              <th>Operator</th>
+              <th>Action</th>
+              <th>Recomputed SHA-256</th>
+              <th>Stated hash</th>
+            </tr>
+          </thead>
+          <tbody id="rows"></tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <section class="mt" id="legal-section" hidden>
+    <div class="legal">
+      <b>Scope of this finding.</b> A passing result means the file you hold is internally consistent: each entry's
+      stored hash equals the SHA-256 of its own contents, and each entry references the hash of the one before it.
+      It does <b>not</b> establish who created the file, when, or that the observations recorded within it are true.
+      A failing result means the file was altered after it was produced. Internal consistency is necessary, never
+      sufficient, for <b>Section 63, Bharatiya Sakshya Adhiniyam, 2023 (formerly s.65B, Indian Evidence Act, 1872)</b>
+      certification; the certificate and its examiner declaration must be obtained from the investigating officer.
+    </div>
+  </section>
+</main>
+
+<footer class="app-footer">
+  <span>AETHER &middot; NTRO PS-26151 &middot; zero-dependency offline verifier</span>
+  <span>no network requests &middot; Web Crypto SHA-256</span>
+</footer>
+
+<script>
+"use strict";
+
+/* =====================================================================
+   AETHER Independent Custody Chain Verifier
+
+   Cryptographic contract this page implements (must match
+   app/services/custody.py byte for byte):
+
+     entry_hash = SHA-256( json({seq, timestamp, actor, action, prev_hash},
+                                sort_keys=True, separators=(",",":"),
+                                ensure_ascii=True).encode("utf-8") )
+
+     signature  = Ed25519( json({action, entry_hash, operator, seq, timestamp},
+                                sort_keys=True, separators=(",",":"),
+                                ensure_ascii=True).encode("utf-8") )
+
+   Two details are easy to get wrong and are handled explicitly below:
+
+   1. Python's json.dumps escapes every non-ASCII character as \uXXXX by
+      default. JSON.stringify does not. A ledger with a Devanagari or
+      emoji payload would therefore hash differently in JS unless the
+      ASCII escaping is reproduced by hand.
+
+   2. The CSV export defuses spreadsheet formula injection. That defuse is
+      applied when the entry is *accepted* (CustodyEntryCreate.sanitize_text
+      prepends an apostrophe), which means the apostrophe is part of the value
+      that was hashed and must be kept when recomputing. It is therefore
+      WRONG to strip a leading apostrophe unconditionally - doing so would make
+      every such entry report as tampered.
+
+      The export-time defuse in build_custody_csv can only fire on a value that
+      was never hashed in that form (a direct database write bypassing the API
+      validator). If the verbatim hash fails, the verifier retries once with a
+      single leading apostrophe removed and labels the row "defuse-normalized"
+      rather than silently hiding the difference. A forged row cannot exploit
+      this: the attacker would need the stored hash to already equal the hash of
+      the apostrophe-prefixed canonical form.
+   ===================================================================== */
+
+var GENESIS_HASH = "0".repeat(64);
+var REQUIRED_COLUMNS = ["seq", "timestamp_utc", "operator", "action", "payload", "prev_hash", "hash", "signature", "key_id"];
+
+var state = { rows: [], fileName: "", result: null };
+
+/* ---------------- Canonical serialization (Python json.dumps parity) ------- */
+
+// Reproduce json.dumps(..., ensure_ascii=True, separators=(",",":")).
+function pyEscape(value) {
+  var out = '"';
+  for (var i = 0; i < value.length; i++) {
+    var ch = value[i];
+    var code = value.charCodeAt(i);
+    if (ch === '"') out += '\\"';
+    else if (ch === "\\") out += "\\\\";
+    else if (ch === "\b") out += "\\b";
+    else if (ch === "\f") out += "\\f";
+    else if (ch === "\n") out += "\\n";
+    else if (ch === "\r") out += "\\r";
+    else if (ch === "\t") out += "\\t";
+    else if (code < 0x20) out += "\\u" + code.toString(16).padStart(4, "0");
+    else if (code < 0x7f) out += ch;
+    else if (code < 0x10000) out += "\\u" + code.toString(16).padStart(4, "0");
+    else {
+      // Astral character: emit a UTF-16 surrogate pair, as Python does.
+      var adjusted = code - 0x10000;
+      var high = 0xd800 + (adjusted >> 10);
+      var low = 0xdc00 + (adjusted & 0x3ff);
+      out += "\\u" + high.toString(16).padStart(4, "0");
+      out += "\\u" + low.toString(16).padStart(4, "0");
+    }
+  }
+  return out + '"';
+}
+
+function pyStr(value) { return pyEscape(value === null || value === undefined ? "" : String(value)); }
+
+function canonicalEntry(row) {
+  return "{" +
+    '"action":' + pyStr(row.action) + "," +
+    '"actor":' + pyStr(row.operator) + "," +
+    '"prev_hash":' + pyStr(row.prev_hash) + "," +
+    '"seq":' + String(row.seq) + "," +
+    '"timestamp":' + pyStr(row.timestamp_utc) +
+  "}";
+}
+
+function canonicalSignature(row) {
+  return "{" +
+    '"action":' + pyStr(row.action) + "," +
+    '"entry_hash":' + pyStr(row.hash) + "," +
+    '"operator":' + pyStr(row.operator) + "," +
+    '"seq":' + String(row.seq) + "," +
+    '"timestamp":' + pyStr(row.timestamp_utc) +
+  "}";
+}
+
+/* ---------------- Crypto -------------------------------------------------- */
+
+function toHex(buffer) {
+  var bytes = new Uint8Array(buffer), hex = "";
+  for (var i = 0; i < bytes.length; i++) hex += bytes[i].toString(16).padStart(2, "0");
+  return hex;
+}
+
+function sha256Hex(text) {
+  return crypto.subtle.digest("SHA-256", new TextEncoder().encode(text)).then(toHex);
+}
+
+function b64ToBytes(b64) {
+  var clean = b64.replace(/\s+/g, "");
+  var binary = atob(clean);
+  var bytes = new Uint8Array(binary.length);
+  for (var i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+  return bytes;
+}
+
+function ed25519Available() {
+  return !!(window.crypto && crypto.subtle && typeof crypto.subtle.importKey === "function");
+}
+
+/* ---------------- RFC 4180 CSV parser ------------------------------------- */
+
+function parseCsv(text) {
+  if (text.charCodeAt(0) === 0xfeff) text = text.slice(1); // strip BOM
+  var rows = [], row = [], field = "", i = 0, inQuotes = false;
+
+  while (i < text.length) {
+    var ch = text[i];
+    if (inQuotes) {
+      if (ch === '"') {
+        if (text[i + 1] === '"') { field += '"'; i += 2; continue; } // escaped quote
+        inQuotes = false; i++; continue;
+      }
+      field += ch; i++; continue;
+    }
+    if (ch === '"') { inQuotes = true; i++; continue; }
+    if (ch === ",") { row.push(field); field = ""; i++; continue; }
+    if (ch === "\r") { i++; continue; }
+    if (ch === "\n") { row.push(field); rows.push(row); row = []; field = ""; i++; continue; }
+    field += ch; i++;
+  }
+  if (field.length > 0 || row.length > 0) { row.push(field); rows.push(row); }
+  return rows.filter(function (r) { return r.length > 1 || (r.length === 1 && r[0] !== ""); });
+}
+
+function unescapeCell(value) {
+  // Reverses the export-time spreadsheet defuse for a value that was written
+  // straight to the database. Values that passed the API validator keep their
+  // apostrophe, because that apostrophe was hashed.
+  return (value && value.length > 1 && value[0] === "'") ? value.slice(1) : value;
+}
+
+function toLedgerRows(matrix) {
+  if (!matrix.length) throw new Error("The file is empty.");
+  var header = matrix[0].map(function (h) { return h.trim(); });
+  var missing = REQUIRED_COLUMNS.filter(function (c) { return header.indexOf(c) === -1; });
+  if (missing.length) {
+    throw new Error(
+      "This is not an AETHER custody ledger. Missing column(s): " + missing.join(", ") +
+      ". Expected header: " + REQUIRED_COLUMNS.join(",") + "."
+    );
+  }
+  return matrix.slice(1).map(function (cells, index) {
+    function get(name) { return unescapeCell(cells[header.indexOf(name)] || ""); }
+    var seqRaw = get("seq");
+    var seq = parseInt(seqRaw, 10);
+    if (!isFinite(seq)) throw new Error("Row " + (index + 2) + ": seq is not a number ('" + seqRaw + "').");
+    return {
+      line: index + 2,
+      seq: seq,
+      timestamp_utc: get("timestamp_utc"),
+      operator: get("operator"),
+      action: get("action"),
+      payload: get("payload"),
+      prev_hash: get("prev_hash"),
+      hash: get("hash"),
+      signature: get("signature"),
+      key_id: get("key_id"),
+    };
+  });
+}
+
+/* ---------------- Verification ------------------------------------------- */
+
+function verifyChain(rows, publicKeyBytes) {
+  var results = [];
+  var expectedPrev = GENESIS_HASH;
+  var brokenAt = null;
+  var hashOk = true;
+  var ordered = rows.slice().sort(function (a, b) { return a.seq - b.seq; });
+
+  var chain = Promise.resolve();
+  ordered.forEach(function (row) {
+    chain = chain.then(function () {
+      return sha256Hex(canonicalEntry(row)).then(function (recomputed) {
+        var hashMatches = recomputed === row.hash;
+        var defuseNormalized = false;
+
+        if (!hashMatches) {
+          // Second chance: the value may have been written straight to the
+          // database and defused only at export time.
+          var stripped = {
+            seq: row.seq, timestamp_utc: row.timestamp_utc,
+            operator: unescapeCell(row.operator), action: unescapeCell(row.action),
+            prev_hash: row.prev_hash,
+          };
+          if (stripped.operator !== row.operator || stripped.action !== row.action) {
+            return sha256Hex(canonicalEntry(stripped)).then(function (alt) {
+              return alt === row.hash;
+            }).then(function (matched) {
+              defuseNormalized = matched;
+              return finish(recomputed, hashMatches, defuseNormalized);
+            });
+          }
+        }
+        return finish(recomputed, hashMatches, defuseNormalized);
+
+        // Named parameters deliberately avoid `hashOk`: shadowing the outer
+        // accumulator made every break silently unrecorded, so a tampered
+        // ledger reported as intact.
+        function finish(recomputedHash, rowHashOk, normalized) {
+          var linkageOk = row.prev_hash === expectedPrev;
+          if (!rowHashOk || !linkageOk) {
+            hashOk = false;
+            if (brokenAt === null) brokenAt = row.seq;
+          }
+
+          return verifyRowSignature(row, publicKeyBytes).then(function (sigState) {
+            results.push({
+              row: row,
+              recomputed: recomputedHash,
+              hashMatches: rowHashOk,
+              linkageMatches: linkageOk,
+              defuseNormalized: normalized,
+              signature: sigState,
+            });
+            expectedPrev = row.hash;
+          });
+        }
+      });
+    });
+  });
+
+  return chain.then(function () {
+    return {
+      entries: results,
+      hashOk: hashOk,
+      brokenAtSeq: brokenAt,
+      total: ordered.length,
+      signedCount: results.filter(function (e) { return e.signature.present; }).length,
+      verifiedSignatures: results.filter(function (e) { return e.signature.present && e.signature.valid; }).length,
+      badSignatures: results.filter(function (e) { return e.signature.present && !e.signature.valid; }).length,
+      signatureSupported: !!publicKeyBytes,
+    };
+  });
+}
+
+function verifyRowSignature(row, publicKeyBytes) {
+  if (!row.signature) return Promise.resolve({ present: false, valid: null, state: "unsigned" });
+  if (!publicKeyBytes) return Promise.resolve({ present: true, valid: null, state: "unchecked" });
+  if (!ed25519Available()) return Promise.resolve({ present: true, valid: null, state: "unsupported" });
+  return crypto.subtle.importKey("raw", publicKeyBytes, "Ed25519", false, ["verify"])
+    .then(function (key) {
+      return crypto.subtle.verify("Ed25519", key, b64ToBytes(row.signature), new TextEncoder().encode(canonicalSignature(row)));
+    })
+    .then(function (ok) { return { present: true, valid: ok, state: ok ? "valid" : "invalid" }; })
+    .catch(function () { return { present: true, valid: null, state: "error" }; });
+}
+
+/* ---------------- Rendering ----------------------------------------------- */
+
+function el(id) { return document.getElementById(id); }
+
+function shortHash(h) { return h ? h.slice(0, 16) + "…" : "—"; }
+
+function render(result, meta) {
+  var section = el("verdict-section");
+  var box = el("verdict");
+  var title = el("verdict-title");
+  var body = el("verdict-body");
+
+  var verdictOk = result.hashOk;
+  var conflictFree = result.badSignatures === 0;
+  var unsignedLegacy = result.signedCount < result.total;
+
+  box.className = "verdict " + (verdictOk && conflictFree ? (unsignedLegacy ? "warn" : "ok") : "bad");
+
+  if (!verdictOk) {
+    title.textContent = "✗ CHAIN BROKEN — TAMPER DETECTED";
+    body.innerHTML =
+      '<div class="verdict-line">The first altered entry is <b>seq ' + result.brokenAtSeq + "</b>. Every entry after it inherits a broken link, so the ledger is not internally consistent.</div>" +
+      '<div class="verdict-line" style="margin-top:6px">A file in this state cannot satisfy <b>Section 63, Bharatiya Sakshya Adhiniyam, 2023 (formerly s.65B, Indian Evidence Act, 1872)</b> and must be re-obtained from the investigating officer.</div>';
+  } else if (result.badSignatures > 0) {
+    title.textContent = "✗ HASHES VALID — SIGNATURES FAILED";
+    body.innerHTML =
+      '<div class="verdict-line">The hash chain is internally consistent, but <b>' + result.badSignatures + " of " + result.signedCount + " signatures are invalid</b>. This is the signature of a <b>recompute attack</b>: an editor altered the ledger and regenerated every downstream hash so the chain would still verify.</div>" +
+      '<div class="verdict-line" style="margin-top:6px">The <code>hash</code> column cannot be trusted for this file. Reject it and request a fresh export.</div>';
+  } else if (unsignedLegacy) {
+    title.textContent = "△ CHAIN VALID — LEGACY UNSIGNED ENTRIES";
+    body.innerHTML =
+      '<div class="verdict-line">All <b>' + result.total + ' entries</b> hash and link correctly, but only <b>' + result.signedCount + " of " + result.total + "</b> carry a signature. These entries predate signing key configuration, so they can be recomputed by an attacker without detection.</div>" +
+      '<div class="verdict-line" style="margin-top:6px">Paste the investigator’s Ed25519 public key above to check the signed entries.</div>';
+  } else {
+    title.textContent = "✓ CHAIN VERIFIED — INTEGRITY INTACT";
+    body.innerHTML =
+      '<div class="verdict-line"><b>' + result.total + ' entries</b> verified. Every stored hash equals the SHA-256 of its own canonical contents, and every entry references the correct predecessor.</div>' +
+      (result.signedCount ? '<div class="verdict-line hashline" style="margin-top:6px">All <b>' + result.signedCount + '</b> Ed25519 signatures valid. Chain tip: <b>' + shortHash(result.entries[result.entries.length - 1].row.hash) + "</b></div>" : "");
+  }
+
+  section.hidden = false;
+
+  var stats = [
+    ["File", meta.fileName],
+    ["Entries", String(result.total)],
+    ["Hash chain", result.hashOk ? "INTACT" : "BROKEN @ seq " + result.brokenAtSeq],
+    ["Signatures", result.signedCount + " signed / " + (result.total - result.signedCount) + " unsigned"],
+    ["Signature check", !result.signatureSupported ? "no key supplied" : (result.badSignatures + " failed")],
+    ["Chain tip", result.entries.length ? result.entries[result.entries.length - 1].row.hash : GENESIS_HASH],
+  ];
+  el("stats").innerHTML = stats.map(function (pair) {
+    return '<div class="stat"><div class="stat-label">' + escapeHtml(pair[0]) + '</div><div class="stat-value">' + escapeHtml(pair[1]) + "</div></div>";
+  }).join("");
+  el("stats-section").hidden = false;
+
+  var rowsHtml = result.entries.map(function (entry) {
+    var row = entry.row;
+    var cls = !entry.hashMatches || !entry.linkageMatches ? "broken" : (entry.signature.state === "invalid" ? "broken" : "ok");
+    var status = !entry.hashMatches ? "hash mismatch"
+      : !entry.linkageMatches ? "broken link"
+      : entry.defuseNormalized ? "verified (defuse)"
+      : entry.signature.state === "invalid" ? "bad signature"
+      : entry.signature.state === "unchecked" ? "unsigned / unchecked"
+      : entry.signature.state === "unsigned" ? "unsigned legacy"
+      : "verified";
+    return "<tr class=\"" + cls + "\">" +
+      '<td class="seq">' + row.seq + "</td>" +
+      '<td class="status">' + status + "</td>" +
+      '<td class="mono-small">' + escapeHtml(row.operator) + "</td>" +
+      '<td class="mono-small">' + escapeHtml(row.action) + "</td>" +
+      '<td class="mono-small">' + shortHash(entry.recomputed) + "</td>" +
+      '<td class="mono-small">' + shortHash(row.hash) + "</td>" +
+    "</tr>";
+  }).join("");
+
+  el("rows").innerHTML = rowsHtml;
+  el("table-section").hidden = false;
+  el("table-summary").textContent = result.hashOk ? "all links recomputed" : "break at seq " + result.brokenAtSeq;
+  el("legal-section").hidden = false;
+  el("row-count").textContent = result.total + " entries";
+}
+
+function escapeHtml(value) {
+  return String(value === null || value === undefined ? "" : value)
+    .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+}
+
+function showError(message) {
+  var section = el("verdict-section");
+  var box = el("verdict");
+  box.className = "verdict bad";
+  el("verdict-title").textContent = "✗ UNABLE TO VERIFY";
+  el("verdict-body").innerHTML = '<div class="verdict-line">' + escapeHtml(message) + "</div>";
+  section.hidden = false;
+  el("stats-section").hidden = true;
+  el("table-section").hidden = true;
+  el("legal-section").hidden = true;
+}
+
+/* ---------------- Wiring ------------------------------------------------- */
+
+function readPublicKey() {
+  var raw = el("pubkey").value.trim();
+  if (!raw) return { bytes: null, error: null };
+  try {
+    var bytes = b64ToBytes(raw);
+    if (bytes.length !== 32) {
+      return { bytes: null, error: "A raw Ed25519 public key is 32 bytes; this value decodes to " + bytes.length + "." };
+    }
+    return { bytes: bytes, error: null };
+  } catch (e) {
+    return { bytes: null, error: "The public key is not valid base64." };
+  }
+}
+
+function runVerification() {
+  if (!state.rows.length) { showError("Load a custody ledger CSV first."); return; }
+  var key = readPublicKey();
+  if (key.error) { showError(key.error); return; }
+
+  el("btn-verify").disabled = true;
+  el("btn-verify").textContent = "Verifying…";
+  verifyChain(state.rows, key.bytes)
+    .then(function (result) {
+      state.result = result;
+      render(result, { fileName: state.fileName || "pasted ledger" });
+    })
+    .catch(function (e) { showError("Verification failed: " + e.message); })
+    .then(function () {
+      el("btn-verify").disabled = false;
+      el("btn-verify").textContent = "Verify chain";
+    });
+}
+
+function loadText(text, name) {
+  try {
+    state.rows = toLedgerRows(parseCsv(text));
+    state.fileName = name;
+    el("row-count").textContent = state.rows.length + " entries";
+    runVerification();
+  } catch (e) {
+    showError(e.message);
+  }
+}
+
+function loadFile(file) {
+  if (!file) return;
+  if (file.size > 20 * 1024 * 1024) { showError("File is larger than 20 MB; refusing to parse it in the browser."); return; }
+  var reader = new FileReader();
+  reader.onload = function () { loadText(String(reader.result), file.name); };
+  reader.onerror = function () { showError("Could not read the file."); };
+  reader.readAsText(file);
+}
+
+var dropzone = el("dropzone");
+var fileInput = el("file-input");
+
+dropzone.addEventListener("click", function () { fileInput.click(); });
+dropzone.addEventListener("keydown", function (e) {
+  if (e.key === "Enter" || e.key === " ") { e.preventDefault(); fileInput.click(); }
+});
+fileInput.addEventListener("change", function () { loadFile(fileInput.files[0]); });
+
+["dragenter", "dragover"].forEach(function (name) {
+  dropzone.addEventListener(name, function (e) { e.preventDefault(); dropzone.classList.add("over"); });
+});
+["dragleave", "drop"].forEach(function (name) {
+  dropzone.addEventListener(name, function (e) { e.preventDefault(); dropzone.classList.remove("over"); });
+});
+dropzone.addEventListener("drop", function (e) {
+  if (e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files.length) loadFile(e.dataTransfer.files[0]);
+});
+
+el("btn-verify").addEventListener("click", runVerification);
+el("pubkey").addEventListener("change", function () { if (state.rows.length) runVerification(); });
+
+/* ---------------- Sample ledger ------------------------------------------
+   Built in-page with the same canonical serialization the backend uses, so
+   the sample is a genuine three-entry chain rather than a hard-coded blob.
+   "Load a tampered copy" flips one action, which is what a real edited ledger
+   looks like to the verifier.
+   ---------------------------------------------------------------------- */
+
+function sha256HexSyncFallback(text) { return sha256Hex(text); }
+
+function buildSample(tamper) {
+  var actions = [
+    "Investigation initiated for case AT-2026-0047",
+    "Evidence artifact hashed and sealed (SHA-256)",
+    "Dossier exported to court recorder",
+  ];
+  var entries = [], prev = GENESIS_HASH, chain = Promise.resolve();
+
+  actions.forEach(function (action, index) {
+    var row = {
+      seq: index + 1,
+      timestamp_utc: "2026-09-2" + (index + 4) + "T0" + (4 + index * 3) + ":11:07Z",
+      operator: index === 2 ? "Lead Forensics Officer" : "AETHER Pipeline",
+      action: action,
+      payload: "sample",
+      prev_hash: prev,
+      hash: "",
+      signature: "",
+      key_id: "",
+    };
+    if (tamper && index === 1) {
+      // Edit the payload of a middle entry, exactly as a database attacker would.
+      row.action = "Evidence artifact hashed and sealed (SHA-256) [AMENDED]";
+    }
+    chain = chain.then(function () {
+      return sha256HexSyncFallback(canonicalEntry(row)).then(function (h) {
+        row.hash = h;
+        prev = h;
+        entries.push(row);
+      });
+    });
+  });
+
+  return chain.then(function () {
+    var header = REQUIRED_COLUMNS.join(",");
+    var body = entries.map(function (r) {
+      return [r.seq, r.timestamp_utc, r.operator, r.action, r.payload, r.prev_hash, r.hash, r.signature, r.key_id]
+        .map(function (cell) {
+          var safe = (cell && "=+-@\t\r".indexOf(String(cell)[0]) !== -1) ? "'" + cell : String(cell);
+          return '"' + String(safe).replace(/"/g, '""') + '"';
+        }).join(",");
+    }).join("\r\n");
+    return "\ufeff" + header + "\r\n" + body + "\r\n";
+  });
+}
+
+el("btn-sample").addEventListener("click", function () {
+  buildSample(false).then(function (csv) { loadText(csv, "sample-ledger-valid.csv"); });
+});
+
+el("btn-sample-bad").addEventListener("click", function () {
+  buildSample(true).then(function (csv) { loadText(csv, "sample-ledger-tampered.csv"); });
+});
+
+/* ---------------- Boot ---------------------------------------------------- */
+
+if (!window.crypto || !crypto.subtle) {
+  el("net-state").textContent = "INSECURE CONTEXT";
+  el("ed25519-support").textContent = "unavailable";
+  el("ed25519-support").className = "badge invert";
+} else {
+  el("ed25519-support").textContent = "ed25519 ready";
+  el("ed25519-support").className = "badge solid";
+}
+if (location.protocol !== "file:") {
+  // crypto.subtle is only exposed in a secure context; over plain http on a LAN
+  // host this page is a viewer only.
+  el("net-state").textContent = "SECURE CONTEXT";
+} else {
+  el("net-state").textContent = "LOCAL FILE";
+}
+</script>
+</body>
+</html>

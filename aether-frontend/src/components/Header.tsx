@@ -208,6 +208,16 @@ export const Header: React.FC<HeaderProps> = ({
           <i className="fa-regular fa-comment-dots text-sm"></i>
         </button>
 
+        <a
+          href="/verify.html"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="w-10 h-10 bg-[#0d1017] border border-[#1e2533] flex items-center justify-center text-slate-400 hover:text-white transition shrink-0"
+          title="Independent Chain Verifier (opens offline in a new tab)"
+        >
+          <i className="fa-solid fa-shield-halved text-sm"></i>
+        </a>
+
         <button
           type="button"
           onClick={() =>
