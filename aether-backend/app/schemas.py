@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import re
 from datetime import datetime
+from typing import Any
+
 from pydantic import BaseModel, ConfigDict, Field, computed_field, field_validator
 
 
@@ -131,6 +133,7 @@ class CaseOut(BaseModel):
     target_url: str = ""
     target_type: str = "domain"
     status: str = "ACTIVE"
+    scoring: dict[str, Any] = Field(default_factory=dict)
     custody: list[CustodyEntryOut] = Field(default_factory=list)
     evidence_records: list[EvidenceOut] = Field(default_factory=list)
     correlations: list[EvidenceCorrelationOut] = Field(default_factory=list)

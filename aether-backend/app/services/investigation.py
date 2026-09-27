@@ -55,7 +55,11 @@ from app.services.intel import (
     resolve_intel_mode,
 )
 from app.services.job_events import job_broadcaster
-from app.services.scoring import calculate_calibrated_confidence
+from app.services.scoring import (
+    Evidence as ScoringEvidence,
+    make_evidence,
+    score_evidence,
+)
 from app.services.stylometry import analyze_stylometry
 
 logger = logging.getLogger(__name__)
@@ -1034,26 +1038,83 @@ async def run_full_investigation_async(
     # ======================================================================== #
     # Calibrated Attribution Scoring (Computed from Completed Evidence)
     # ======================================================================== #
-    deterministic_signals: Dict[str, float] = {}
-    probabilistic_signals: Dict[str, float] = {}
+    # Each module contributes graded indicator strength. A module that did not
+    # complete contributes nothing (LR 1.0), so a partial investigation scores
+    # lower than a full one instead of being scored on absent data.
+    attribution_indicators: List[ScoringEvidence] = []
 
+    if res_map.get("favicon") and res_map["favicon"].success:
+        attribution_indicators.append(
+            make_evidence(
+                "favicon_match",
+                0.9,
+                raw_value=mmh3_val,
+                detail="Shodan favicon MurmurHash3 correlation.",
+            )
+        )
     if res_map.get("pgp") and res_map["pgp"].success:
-        deterministic_signals["pgp_match"] = 1.0 if pgp_norm["valid"] else 0.5
+        attribution_indicators.append(
+            make_evidence(
+                "pgp_match",
+                1.0 if pgp_norm.get("valid") else 0.5,
+                raw_value=pgp_norm.get("key_id_short"),
+                detail="PGP key reuse across attributed infrastructure.",
+            )
+        )
     if res_map.get("origin_ip") and res_map["origin_ip"].success:
-        deterministic_signals["origin_ip_match"] = 0.95
+        attribution_indicators.append(
+            make_evidence("origin_ip_match", 0.95, detail="Server-status / metadata origin IP leak.")
+        )
+    if res_map.get("jarm") and res_map["jarm"].success:
+        attribution_indicators.append(
+            make_evidence(
+                "infrastructure_reuse",
+                0.5,
+                raw_value=res_map["jarm"].data.get("jarm_res", {}).get("jarm"),
+                detail="JARM TLS stack match; infrastructure-level, not identity-level.",
+            )
+        )
     if res_map.get("crypto") and res_map["crypto"].success:
-        deterministic_signals["btc_cluster_match"] = 0.88
-
+        attribution_indicators.append(
+            make_evidence("btc_cluster_match", 0.88, detail="Bitcoin peel-chain wallet clustering.")
+        )
     if res_map.get("stylometry") and res_map["stylometry"].success:
-        probabilistic_signals["stylometry_similarity"] = stylo_result["similarity_score"]
+        attribution_indicators.append(
+            make_evidence(
+                "stylometry_similarity",
+                stylo_result["similarity_score"],
+                detail="Prose stylometry against the known-corpus profile.",
+            )
+        )
     if res_map.get("diurnal") and res_map["diurnal"].success:
-        probabilistic_signals["diurnal_consistency"] = 0.84
+        attribution_indicators.append(
+            make_evidence("diurnal_consistency", 0.84, detail="Circadian operational offset consistency.")
+        )
+    if res_map.get("osint") and res_map["osint"].success:
+        attribution_indicators.append(
+            make_evidence(
+                "infrastructure_reuse",
+                0.4,
+                raw_value=res_map["osint"].data.get("intel_res", {}).get("asn"),
+                detail="Hosting ASN / banner overlap from the public OSINT provider.",
+            )
+        )
 
-    score_result = calculate_calibrated_confidence(
-        deterministic_signals=deterministic_signals,
-        probabilistic_signals=probabilistic_signals,
-        contradictions=[],
-    )
+    # Active contradiction: a reused TLS certificate or CT-log overlap that points
+    # at a *different* documented subject must suppress attribution rather than
+    # be averaged away. Phase 8 populates this once fingerprint matching lands;
+    # until then no indicator can legitimately refute, so the set stays empty.
+    score_result = score_evidence(attribution_indicators)
+
+    # Persist the explainability payload so exports and the UI can show why.
+    case.scoring = {
+        "engine": score_result["engine"],
+        "prior_probability": score_result["prior_probability"],
+        "log_likelihood_ratio_total": score_result["log_likelihood_ratio_total"],
+        "conflict": score_result["conflict"],
+        "contributions": score_result["contributions"],
+        "contradicting_evidence": score_result["contradicting_evidence"],
+    }
 
     conf_pct = round(score_result["confidence_score"] * 100, 1)
     case.confidence = conf_pct
@@ -1142,7 +1203,12 @@ async def run_full_investigation_async(
     attribution_payload = {
         "confidence_score": conf_pct,
         "confidence_tier": score_result["confidence_tier"],
-        "breakdown": score_result["breakdown"],
+        "engine": score_result["engine"],
+        "prior_probability": score_result["prior_probability"],
+        "log_likelihood_ratio_total": score_result["log_likelihood_ratio_total"],
+        "conflict": score_result["conflict"],
+        "contributions": score_result["contributions"],
+        "contradicting_evidence": score_result["contradicting_evidence"],
         "judicial_admissibility": "Adheres to Daubert/Frye standards: Segregates deterministic proofs from AI heuristics.",
         "evidentiary_caveat": "Attribution reflects multi-vector correlation across 9 modules; single-point indicator proof is strictly disclaimed.",
     }

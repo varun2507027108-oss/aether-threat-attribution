@@ -23,6 +23,7 @@ class Case(Base):
     pgp_fingerprint: Mapped[str] = mapped_column(String(64), default="")
     btc_root: Mapped[str] = mapped_column(String(64), default="")
     confidence: Mapped[float] = mapped_column(Float, default=0.0)
+    scoring: Mapped[dict] = mapped_column(JSON, default=dict)
     onion_url: Mapped[str] = mapped_column(String(256), default="")
     target_url: Mapped[str] = mapped_column(String(512), default="")
     target_type: Mapped[str] = mapped_column(String(64), default="domain")

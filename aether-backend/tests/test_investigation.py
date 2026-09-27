@@ -66,7 +66,11 @@ def test_start_investigation_onion_target(client):
     attribution = data["attribution"]
     assert 0.0 <= attribution["confidence_score"] <= 100.0
     assert "confidence_tier" in attribution
-    assert "breakdown" in attribution
+    # Phase 6 replaced the fixed-weight breakdown with LR fusion explainability.
+    assert attribution["engine"] == "naive_bayes_log_odds+dempster_shafer"
+    assert "contributions" in attribution
+    assert "conflict" in attribution
+    assert len(attribution["contributions"]) > 0
     assert "judicial_admissibility" in attribution
 
     # 5. Dynamic Knowledge Graph

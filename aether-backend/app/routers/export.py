@@ -46,6 +46,7 @@ def _case_dict_for_export(case: Case) -> dict:
         "pgp_fingerprint": case.pgp_fingerprint,
         "btc_root": case.btc_root,
         "confidence": case.confidence,
+        "scoring": case.scoring or {},
         "seal_hash": seal,
         "signature": tip_entry.signature if tip_entry else None,
         "key_id": tip_entry.key_id if tip_entry else None,

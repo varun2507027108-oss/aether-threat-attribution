@@ -21,7 +21,7 @@ def _now() -> datetime:
 
 def build_stix_bundle(case: dict) -> stix2.Bundle:
     """case keys: evidence_id, actor_name, aliases, origin_ip, geo, asn,
-    pgp_fingerprint, btc_root, confidence, seal_hash"""
+    pgp_fingerprint, btc_root, confidence, seal_hash, scoring"""
     ts = _now()
 
     identity = stix2.Identity(
@@ -31,12 +31,32 @@ def build_stix_bundle(case: dict) -> stix2.Bundle:
         created=ts, modified=ts,
     )
 
+    # STIX confidence is an integer percentage of *belief in the assertion*. The
+    # calibrated posterior from the scoring engine is that belief, so it is
+    # carried straight through rather than restated by hand.
+    calibrated_confidence = max(0, min(100, int(round(case.get("confidence") or 0.0))))
+    scoring = case.get("scoring") or {}
+    conflict = scoring.get("conflict") or {}
+    conflict_note = ""
+    if conflict.get("conflict_detected"):
+        conflict_note = (
+            f" EVIDENCE CONFLICT: Dempster-Shafer conflict mass "
+            f"{conflict.get('conflict_mass', 0.0)} exceeded the threshold; this score is "
+            f"discounted and must not be presented as a clean attribution."
+        )
+
     actor = stix2.ThreatActor(
         name=case["actor_name"],
-        description=f"Suspected actor operating under aliases: {', '.join(case['aliases'])}.",
+        description=(
+            f"Suspected actor operating under aliases: {', '.join(case['aliases'])}."
+            f" Calibrated posterior {calibrated_confidence}% "
+            f"(prior {scoring.get('prior_probability', 'unknown')}, "
+            f"log-LR total {scoring.get('log_likelihood_ratio_total', 'n/a')})."
+            f"{conflict_note}"
+        ),
         threat_actor_types=["criminal"],
         aliases=case["aliases"],
-        confidence=int(round(case["confidence"])),
+        confidence=calibrated_confidence,
         created_by_ref=identity.id,
         external_references=[
             stix2.ExternalReference(source_name="aether-evidence-id", external_id=case["evidence_id"]),
@@ -128,17 +148,22 @@ def _defuse(cell: str) -> str:
 
 
 def build_csv(case: dict, extra_rows: list[list[str]] | None = None) -> str:
-    header = ["entity_type", "entity_value", "description", "source_stage", "confidence", "signature", "key_id"]
-    rows = [
-        ["evidence_id", case["evidence_id"], "Case reference", "case", "", "", ""],
-        ["threat_actor", case["actor_name"], "Suspected actor cluster", "stage_2", f"{case['confidence']}%", "", ""],
-        *[["alias", a, "Forum alias", "stage_2", "", "", ""] for a in case.get("aliases", [])],
-        ["ipv4", case["origin_ip"], f"Discovered origin IP, {case.get('geo', '')}", "stage_1", "95%", "", ""],
-        ["asn", case.get("asn", ""), "Hosting provider of origin IP", "stage_1", "", "", ""],
-        ["pgp_fingerprint", case.get("pgp_fingerprint", ""), "40 character PGP fingerprint", "stage_2", "90%", "", ""],
-        ["btc_wallet", case.get("btc_root", ""), "Root of co-spent peel-chain cluster", "stage_2", "85%", "", ""],
-        ["sha256_seal", case["seal_hash"], "Digital hash seal of custody chain", "stage_3", "", case.get("signature") or "", case.get("key_id") or ""],
+    header = [
+        "entity_type", "entity_value", "description", "source_stage",
+        "confidence", "signature", "key_id",
+        "likelihood_ratio", "log_likelihood_ratio", "contribution_pct", "stance",
     ]
+    rows = [
+        ["evidence_id", case["evidence_id"], "Case reference", "case", "", "", "", "", "", "", ""],
+        ["threat_actor", case["actor_name"], "Suspected actor cluster", "stage_2", f"{case['confidence']}%", "", "", "", "", "", ""],
+        *[["alias", a, "Forum alias", "stage_2", "", "", "", "", "", "", ""] for a in case.get("aliases", [])],
+        ["ipv4", case["origin_ip"], f"Discovered origin IP, {case.get('geo', '')}", "stage_1", "95%", "", "", "", "", "", ""],
+        ["asn", case.get("asn", ""), "Hosting provider of origin IP", "stage_1", "", "", "", "", "", "", ""],
+        ["pgp_fingerprint", case.get("pgp_fingerprint", ""), "40 character PGP fingerprint", "stage_2", "90%", "", "", "", "", "", ""],
+        ["btc_wallet", case.get("btc_root", ""), "Root of co-spent peel-chain cluster", "stage_2", "85%", "", "", "", "", "", ""],
+        ["sha256_seal", case["seal_hash"], "Digital hash seal of custody chain", "stage_3", "", case.get("signature") or "", case.get("key_id") or "", "", "", "", ""],
+    ]
+    rows.extend(_scoring_contribution_rows(case))
     if extra_rows:
         rows.extend(extra_rows)
 
@@ -148,6 +173,57 @@ def build_csv(case: dict, extra_rows: list[list[str]] | None = None) -> str:
     for r in rows:
         writer.writerow([_defuse(c) for c in r])
     return "\ufeff" + buf.getvalue()
+
+
+def _scoring_contribution_rows(case: dict) -> list[list[str]]:
+    """Flatten the scoring explainability payload into one row per indicator.
+
+    An examiner reading the CSV must be able to answer "which indicator moved
+    the score, and by how much" without opening the API response, so each
+    indicator is emitted with its likelihood ratio, log-LR, and share of the
+    total log-odds movement.
+    """
+    scoring = case.get("scoring") or {}
+    rows: list[list[str]] = []
+
+    for contribution in scoring.get("contributions", []) or []:
+        rows.append(
+            [
+                "scoring_indicator",
+                str(contribution.get("indicator", "")),
+                str(contribution.get("detail", "")),
+                "scoring",
+                f"{contribution.get('share_pct', 0.0)}%",
+                "",
+                "",
+                str(contribution.get("likelihood_ratio", "")),
+                str(contribution.get("log_likelihood_ratio", "")),
+                str(contribution.get("share_pct", "")),
+                str(contribution.get("stance", "")),
+            ]
+        )
+
+    conflict = scoring.get("conflict") or {}
+    if conflict:
+        rows.append(
+            [
+                "scoring_conflict",
+                str(conflict.get("conflict_mass", "")),
+                (
+                    f"Dempster-Shafer conflict mass (severity {conflict.get('severity', 'none')}, "
+                    f"threshold {conflict.get('threshold', '')}, "
+                    f"applied discount {conflict.get('applied_discount', 0.0)}). "
+                    f"{'CONFLICT DETECTED: the evidence contradicts itself.' if conflict.get('conflict_detected') else 'Frame is internally consistent.'}"
+                ),
+                "scoring",
+                str(conflict.get("severity", "")),
+                "", "",
+                "", "", "",
+                "conflict" if conflict.get("conflict_detected") else "consistent",
+            ]
+        )
+
+    return rows
 
 
 def build_custody_csv(custody_rows: list[Any]) -> str:

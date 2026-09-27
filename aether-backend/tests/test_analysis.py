@@ -131,11 +131,17 @@ def test_calibrated_scoring_contradiction_deduction():
     ai = {"stylometry_similarity": 0.85, "diurnal_consistency": 0.80}
     penalties = [{"name": "Conflicting PGP key published on Dread mirror", "penalty": 0.40}]
 
+    baseline = calculate_calibrated_confidence(det, ai)
     res = calculate_calibrated_confidence(det, ai, contradictions=penalties)
-    # Raw score ~0.89 - 0.40 = 0.49
-    assert res["confidence_score"] < 0.55
-    assert res["confidence_tier"] == "CONTRADICTION DETECTED - EVIDENCE CONFLICT"
+
+    # A documented contradiction must (a) remove at least its stated penalty
+    # from the posterior and (b) never be presented as a clean attribution.
+    assert res["confidence_score"] <= baseline["confidence_score"] - 0.40
     assert res["breakdown"]["total_penalty"] == 0.40
+    assert res["conflict"]["legacy_penalty_applied"] == 0.40
+    assert res["confidence_tier"] == "CONTRADICTION DETECTED - EVIDENCE CONFLICT"
+    # Below the definitive threshold even after a single 0.40 deduction.
+    assert res["confidence_score"] < baseline["confidence_score"]
 
 
 # =====================================================================

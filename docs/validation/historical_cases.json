@@ -1,0 +1,162 @@
+{
+  "schema_version": "1.0",
+  "description": "Labelled synthetic attribution cases used to calibrate the AETHER likelihood-ratio table. Each case mirrors a published de-anonymisation vector observed in real darknet threat-actor reporting. No real subject identifiers are used.",
+  "labels": {
+    "1": "attributed (H true)",
+    "0": "not attributed (H false)"
+  },
+  "notes": "signal values are graded indicator strengths in [0, 1]; stances default to 'supports' unless listed in stances.",
+  "cases": [
+    {
+      "id": "case-01-server-status-leak",
+      "vector": "server_status_leak",
+      "label": 1,
+      "rationale": "Apache /server-status on a clearnet origin directly links the operator's exit relay to the extortion wallet. Deterministic, high-quality.",
+      "signals": {
+        "pgp_match": 0.0,
+        "origin_ip_match": 0.95,
+        "btc_cluster_match": 0.9,
+        "favicon_match": 0.0,
+        "stylometry_similarity": 0.0,
+        "diurnal_consistency": 0.0
+      }
+    },
+    {
+      "id": "case-02-cert-reuse",
+      "vector": "certificate_reuse",
+      "label": 1,
+      "rationale": "A single self-signed TLS leaf certificate served by two unrelated darknet markets is a near-unique operator artefact.",
+      "signals": {
+        "pgp_match": 0.0,
+        "origin_ip_match": 0.0,
+        "btc_cluster_match": 0.0,
+        "tls_cert_match": 0.92,
+        "stylometry_similarity": 0.0
+      }
+    },
+    {
+      "id": "case-03-peel-chain-wallet",
+      "vector": "peel_chain_wallet",
+      "label": 1,
+      "rationale": "Multi-input peel chain converges on a wallet that also appears in a prior extortion note.",
+      "signals": {
+        "btc_cluster_match": 0.88,
+        "infrastructure_reuse": 0.6
+      }
+    },
+    {
+      "id": "case-04-full-stack-corroboration",
+      "vector": "multi_indicator_corroboration",
+      "label": 1,
+      "rationale": "All four indicator families agree: PGP key, origin leak, wallet cluster, and prose style.",
+      "signals": {
+        "pgp_match": 1.0,
+        "origin_ip_match": 0.95,
+        "btc_cluster_match": 0.88,
+        "stylometry_similarity": 0.87,
+        "diurnal_consistency": 0.84
+      }
+    },
+    {
+      "id": "case-05-ct-log-onion-leak",
+      "vector": "ct_log_onion_disclosure",
+      "label": 1,
+      "rationale": "Onion address published in a Certificate Transparency log for an unrelated clearnet domain.",
+      "signals": {
+        "ct_log_overlap": 0.85,
+        "infrastructure_reuse": 0.55,
+        "diurnal_consistency": 0.4
+      }
+    },
+    {
+      "id": "case-06-benign-shared-host",
+      "vector": "false_positive_shared_hosting",
+      "label": 0,
+      "rationale": "Two unrelated actors on the same bulletproof ASN. Hosting overlap alone must not attribute.",
+      "signals": {
+        "infrastructure_reuse": 0.7
+      }
+    },
+    {
+      "id": "case-07-stylometry-false-positive",
+      "vector": "stylometry_false_positive",
+      "label": 0,
+      "rationale": "Threat notes from the same genre and vocabulary (ransom demands) score highly on cosine similarity without a shared author. This is the headline false-positive risk of naive stylometry.",
+      "signals": {
+        "stylometry_similarity": 0.82
+      }
+    },
+    {
+      "id": "case-08-diurnal-false-positive",
+      "vector": "diurnal_false_positive",
+      "label": 0,
+      "rationale": "Automated malware beacons produce a circadian profile. Circadian inference over automated traffic is meaningless.",
+      "signals": {
+        "diurnal_consistency": 0.86
+      }
+    },
+    {
+      "id": "case-09-empty-evidence",
+      "vector": "no_evidence",
+      "label": 0,
+      "rationale": "Target reachable but every module failed. The engine must report inconclusive, not guess.",
+      "signals": {}
+    },
+    {
+      "id": "case-10-weak-single-signal",
+      "vector": "weak_single_indicator",
+      "label": 1,
+      "rationale": "A single strong deterministic artefact (PGP key reuse) is enough to justify a lead, but not a definitive attribution.",
+      "signals": {
+        "pgp_match": 0.97
+      }
+    },
+    {
+      "id": "case-11-contradictory-case",
+      "vector": "conflicting_evidence",
+      "label": 0,
+      "rationale": "Stylometry and circadian modelling both point at a different known actor while infrastructure evidence points elsewhere. The correct output is an explicit conflict, not a confident number.",
+      "signals": {
+        "pgp_match": 0.9,
+        "origin_ip_match": 0.8,
+        "stylometry_similarity": 0.9,
+        "diurnal_consistency": 0.8
+      },
+      "stances": {
+        "stylometry_similarity": "contradicts",
+        "diurnal_consistency": "contradicts"
+      },
+      "raw_values": {
+        "stylometry_similarity": "Author profiling matches a documented false friend (actor B), not the subject.",
+        "diurnal_consistency": "Activity cluster is 11 hours from the subject's inferred trough; matches actor B instead."
+      }
+    },
+    {
+      "id": "case-12-tor-exit-node-naive",
+      "vector": "tor_exit_shared_infrastructure",
+      "label": 0,
+      "rationale": "Matching a Tor exit node fingerprint attributes infrastructure, not a person. Deliberately included so the corpus punishes credulous infrastructure reuse.",
+      "signals": {
+        "infrastructure_reuse": 0.95,
+        "favicon_match": 0.8,
+        "diurnal_consistency": 0.3
+      }
+    },
+    {
+      "id": "case-13-strict-opposition",
+      "vector": "two_artefacts_point_opposite_ways",
+      "label": 0,
+      "rationale": "A confirmed PGP key reuse supports attribution, but the server presents a TLS certificate that is registered to a different, documented subject. Two fully specific artefacts cannot both be true, so the engine must raise an explicit conflict rather than average them.",
+      "signals": {
+        "pgp_match": 1.0,
+        "tls_cert_match": 1.0
+      },
+      "stances": {
+        "tls_cert_match": "contradicts"
+      },
+      "raw_values": {
+        "tls_cert_match": "Leaf certificate is registered to a different named subject with a conflicting issuance timestamp."
+      }
+    }
+  ]
+}

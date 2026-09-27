@@ -19,7 +19,11 @@ from app.services.graph import (
     build_default_case_graph,
     cluster_bitcoin_transactions,
 )
-from app.services.scoring import calculate_calibrated_confidence
+from app.services.scoring import (
+    calculate_calibrated_confidence,
+    make_evidence,
+    score_evidence,
+)
 from app.services.stylometry import analyze_stylometry
 
 router = APIRouter(prefix="/api/analysis", tags=["analysis"])
@@ -46,6 +50,24 @@ class BtcClusterRequest(BaseModel):
     transactions: List[Dict[str, Any]] = Field(..., min_length=1, max_length=1000, description="List of transaction dictionaries (max 1,000)")
 
 
+class EvidenceInput(BaseModel):
+    """A single graded attribution indicator for probabilistic fusion."""
+
+    name: str = Field(..., min_length=1, max_length=64, description="Indicator name from the LR table")
+    strength: float = Field(..., ge=0.0, le=1.0, description="Graded indicator strength in [0, 1]")
+    stance: str = Field("supports", description="supports | contradicts | neutral")
+    raw_value: Optional[Any] = Field(None, description="Original observed value for the record")
+    detail: str = Field("", max_length=2000, description="Examiner note explaining this indicator")
+
+    @field_validator("stance")
+    @classmethod
+    def validate_stance(cls, stance: str) -> str:
+        normalized = stance.strip().lower()
+        if normalized not in {"supports", "contradicts", "neutral"}:
+            raise ValueError("stance must be one of: supports, contradicts, neutral")
+        return normalized
+
+
 class ScoreRequest(BaseModel):
     deterministic_signals: Dict[str, float] = Field(
         default_factory=lambda: {"pgp_match": 1.0, "origin_ip_match": 0.95, "btc_cluster_match": 0.88}
@@ -54,6 +76,18 @@ class ScoreRequest(BaseModel):
         default_factory=lambda: {"stylometry_similarity": 0.87, "diurnal_consistency": 0.82}
     )
     contradictions: Optional[List[Dict[str, Any]]] = Field(default_factory=list)
+    evidence: Optional[List[EvidenceInput]] = Field(
+        default=None,
+        description="Explicit indicator list. When provided, the signal dicts above are ignored.",
+    )
+    prior_probability: Optional[float] = Field(
+        default=None, ge=1e-6, le=1 - 1e-6,
+        description="Override AETHER_PRIOR_ODDS for this evaluation only.",
+    )
+    conflict_threshold: Optional[float] = Field(
+        default=None, ge=0.0, le=1.0,
+        description="Override AETHER_CONFLICT_THRESHOLD for this evaluation only.",
+    )
 
     @field_validator("deterministic_signals", "probabilistic_signals")
     @classmethod
@@ -113,7 +147,34 @@ def compute_attribution_score(
     payload: ScoreRequest,
     principal: InvestigatorPrincipal = Depends(verify_investigator_auth),
 ) -> Dict[str, Any]:
-    """Calculate calibrated confidence score (C_attr) with contradiction deductions."""
+    """Calculate calibrated confidence score (C_attr) via likelihood-ratio fusion.
+
+    Accepts either explicit ``evidence`` indicators (preferred, supports
+    contradicting evidence) or the legacy deterministic/probabilistic signal
+    dicts, and returns the full explainability payload: per-indicator
+    likelihood ratios and contribution shares, the prior used, and the
+    Dempster-Shafer conflict analysis.
+    """
+    if payload.evidence is not None:
+        items = [
+            make_evidence(
+                item.name,
+                item.strength,
+                stance=item.stance,
+                raw_value=item.raw_value,
+                detail=item.detail,
+            )
+            for item in payload.evidence
+        ]
+        result = score_evidence(
+            items,
+            prior=payload.prior_probability,
+            conflict_threshold=payload.conflict_threshold,
+        )
+        if payload.contradictions:
+            result.setdefault("legacy_contradictions", payload.contradictions)
+        return result
+
     return calculate_calibrated_confidence(
         deterministic_signals=payload.deterministic_signals,
         probabilistic_signals=payload.probabilistic_signals,

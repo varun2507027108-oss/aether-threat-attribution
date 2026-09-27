@@ -23,6 +23,9 @@ if os.path.exists(db_path):
     if "target_type" not in cols:
         print("Adding target_type to cases")
         cur.execute("ALTER TABLE cases ADD COLUMN target_type VARCHAR(64) DEFAULT 'onion'")
+    if "scoring" not in cols:
+        print("Adding scoring to cases")
+        cur.execute("ALTER TABLE cases ADD COLUMN scoring JSON DEFAULT '{}'")
         
     cur.execute("UPDATE cases SET status = 'ACTIVE' WHERE status IS NULL")
     cur.execute("UPDATE cases SET target_url = onion_url WHERE target_url IS NULL OR target_url = ''")
