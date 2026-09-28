@@ -713,10 +713,10 @@ async def _run_module_ct_log(
     provider = get_intel_provider(mode)
     domain = clean_target if not origin_ip_of(clean_target) else ""
 
-    if domain:
-        ct_res = await asyncio.to_thread(query_certificate_transparency, domain, identifiers)
-    elif provider.mode == "mock":
-        # Offline corpus: the fixtures already record the CT-visible domains.
+    if provider.mode == "mock":
+        # Offline corpus only. A mock-mode run must never reach the network, and
+        # a crt.sh 502 mid-suite would turn a deterministic test run into a flaky
+        # one that depends on a volunteer-run service's uptime.
         ct_subjects = provider.query_ct_domains(clean_target)
         ct_res = {
             "status": "OK" if ct_subjects else "NO_DATA",
@@ -727,8 +727,8 @@ async def _run_module_ct_log(
             "cache_hit": False,
             "source": "offline corpus fixture",
         }
-        if identifiers:
-            ct_res["overlap_report"] = compute_ct_overlap(identifiers, ct_res)
+    elif domain:
+        ct_res = await asyncio.to_thread(query_certificate_transparency, domain, identifiers)
     else:
         ct_res = {
             "status": "SKIPPED",

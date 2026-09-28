@@ -26,6 +26,7 @@ from app.security import (
     InvestigatorPrincipal,
     is_safe_target_url,
     record_audit_log,
+    require_write_access,
     verify_investigator_auth,
 )
 from app.services.anchor import checkpoint_if_needed, get_last_checkpoint
@@ -97,6 +98,7 @@ async def start_investigation(
     response: Response = None,
     db: Session = Depends(get_db),
     principal: InvestigatorPrincipal = Depends(verify_investigator_auth),
+    _: InvestigatorPrincipal = Depends(require_write_access),
 ):
     # SSRF Protection: In live and auto modes, strictly reject private, loopback, or metadata addresses
     if payload.mode != "demo":
@@ -208,6 +210,7 @@ def create_case(
     payload: CaseCreate,
     db: Session = Depends(get_db),
     principal: InvestigatorPrincipal = Depends(verify_investigator_auth),
+    _: InvestigatorPrincipal = Depends(require_write_access),
 ) -> Case:
     existing = db.execute(select(Case).where(Case.evidence_id == payload.evidence_id)).scalar_one_or_none()
     if existing is not None:
@@ -244,6 +247,7 @@ def add_custody_entry(
     payload: CustodyEntryCreate,
     db: Session = Depends(get_db),
     principal: InvestigatorPrincipal = Depends(verify_investigator_auth),
+    _: InvestigatorPrincipal = Depends(require_write_access),
 ) -> CustodyRow:
     case = _get_case_or_404(db, evidence_id)
 

@@ -8,10 +8,20 @@ from sqlalchemy.orm import Session
 from app.db import get_db
 from app.models import Case
 from app.schemas import EVIDENCE_ID_PATTERN
-from app.security import InvestigatorPrincipal, record_audit_log, verify_investigator_auth
+from app.security import (
+    InvestigatorPrincipal,
+    record_audit_log,
+    require_export_confirmation_role,
+    verify_investigator_auth,
+)
 from app.services.certificate import generate_statutory_certificate
 from app.services.custody import CustodyChain
 from app.services.export import build_csv, build_custody_csv, build_stix_bundle
+from app.services.governance import (
+    confirm_export,
+    export_gate_status,
+    require_export_confirmation,
+)
 
 router = APIRouter(prefix="/api/cases", tags=["export"])
 
@@ -24,6 +34,20 @@ def _validate_evidence_id(evidence_id: str) -> str:
             detail="Invalid evidence_id format for export.",
         )
     return cleaned
+
+
+def _load_case_for_export(db: Session, evidence_id: str, valid_id: str) -> Case:
+    """Load a case and enforce the human-in-the-loop export gate.
+
+    Every dossier-releasing export (STIX, CSV, statutory certificate) passes
+    through here, so the gate cannot be bypassed by adding a new export route and
+    forgetting to add the check.
+    """
+    case = db.execute(select(Case).where(Case.evidence_id == valid_id)).scalar_one_or_none()
+    if case is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"No case with evidence_id '{evidence_id}'")
+    require_export_confirmation(case)
+    return case
 
 
 def _case_dict_for_export(case: Case) -> dict:
@@ -60,9 +84,7 @@ def export_stix(
     principal: InvestigatorPrincipal = Depends(verify_investigator_auth),
 ) -> Response:
     valid_id = _validate_evidence_id(evidence_id)
-    case = db.execute(select(Case).where(Case.evidence_id == valid_id)).scalar_one_or_none()
-    if case is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"No case with evidence_id '{evidence_id}'")
+    case = _load_case_for_export(db, evidence_id, valid_id)
 
     bundle = build_stix_bundle(_case_dict_for_export(case))
     filename = f"aether_stix_bundle_{case.evidence_id}.json"
@@ -89,9 +111,7 @@ def export_csv(
     principal: InvestigatorPrincipal = Depends(verify_investigator_auth),
 ) -> Response:
     valid_id = _validate_evidence_id(evidence_id)
-    case = db.execute(select(Case).where(Case.evidence_id == valid_id)).scalar_one_or_none()
-    if case is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"No case with evidence_id '{evidence_id}'")
+    case = _load_case_for_export(db, evidence_id, valid_id)
 
     csv_text = build_csv(_case_dict_for_export(case))
     filename = f"aether_attribution_matrix_{case.evidence_id}.csv"
@@ -118,6 +138,10 @@ def export_custody(
     principal: InvestigatorPrincipal = Depends(verify_investigator_auth),
 ) -> Response:
     valid_id = _validate_evidence_id(evidence_id)
+    # Deliberately NOT gated: the custody ledger is the integrity record, and the
+    # whole point of verify.html is that a third party can audit it. Gating the
+    # evidence of tampering behind the permission to tamper would invert the
+    # control. Only the dossier-releasing exports require human affirmation.
     case = db.execute(select(Case).where(Case.evidence_id == valid_id)).scalar_one_or_none()
     if case is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"No case with evidence_id '{evidence_id}'")
@@ -140,6 +164,49 @@ def export_custody(
     )
 
 
+@router.get("/{evidence_id}/export/gate")
+def export_gate(
+    evidence_id: str,
+    db: Session = Depends(get_db),
+    principal: InvestigatorPrincipal = Depends(verify_investigator_auth),
+) -> dict:
+    """Report whether the current dossier state is cleared for release.
+
+    Read-only, so an auditor can check the gate without satisfying it.
+    """
+    valid_id = _validate_evidence_id(evidence_id)
+    case = db.execute(select(Case).where(Case.evidence_id == valid_id)).scalar_one_or_none()
+    if case is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"No case with evidence_id '{evidence_id}'")
+    return export_gate_status(case)
+
+
+@router.post("/{evidence_id}/confirm-export")
+def confirm_case_export(
+    evidence_id: str,
+    db: Session = Depends(get_db),
+    principal: InvestigatorPrincipal = Depends(verify_investigator_auth),
+    _: InvestigatorPrincipal = Depends(require_export_confirmation_role),
+) -> dict:
+    """Affirm release of the current dossier state.
+
+    Investigator-only by design. The affirmation is appended to the custody chain
+    with the dossier hash, so the record answers both "who released this" and
+    "exactly what did they release".
+    """
+    valid_id = _validate_evidence_id(evidence_id)
+    case = db.execute(select(Case).where(Case.evidence_id == valid_id)).scalar_one_or_none()
+    if case is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"No case with evidence_id '{evidence_id}'")
+
+    result = confirm_export(
+        case, db,
+        operator=principal.operator,
+        key_id=principal.key_id,
+    )
+    return result
+
+
 @router.get("/{evidence_id}/export/certificate")
 def export_certificate(
     evidence_id: str,
@@ -147,9 +214,7 @@ def export_certificate(
     principal: InvestigatorPrincipal = Depends(verify_investigator_auth),
 ) -> StreamingResponse:
     valid_id = _validate_evidence_id(evidence_id)
-    case = db.execute(select(Case).where(Case.evidence_id == valid_id)).scalar_one_or_none()
-    if case is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"No case with evidence_id '{evidence_id}'")
+    case = _load_case_for_export(db, evidence_id, valid_id)
 
     pdf_bytes = generate_statutory_certificate(
         case=case,

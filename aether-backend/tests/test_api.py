@@ -108,6 +108,7 @@ def test_export_stix_is_valid_and_downloadable(client):
     client.post("/api/cases", json=CASE_PAYLOAD)
     client.post("/api/cases/AT-2026-0047/custody", json={"actor": "Analyst-01", "action": "Sealed"})
 
+    client.post("/api/cases/AT-2026-0047/confirm-export")
     r = client.get("/api/cases/AT-2026-0047/export/stix")
     assert r.status_code == 200
     assert "attachment" in r.headers["content-disposition"]
@@ -122,6 +123,7 @@ def test_export_stix_is_valid_and_downloadable(client):
 def test_export_csv_is_downloadable_and_well_formed(client):
     client.post("/api/cases", json=CASE_PAYLOAD)
 
+    client.post("/api/cases/AT-2026-0047/confirm-export")
     r = client.get("/api/cases/AT-2026-0047/export/csv")
     assert r.status_code == 200
     assert "aether_attribution_matrix_AT-2026-0047.csv" in r.headers["content-disposition"]
@@ -140,7 +142,9 @@ def test_export_404_for_unknown_case(client):
 
 def test_seal_changes_after_new_custody_entry(client):
     client.post("/api/cases", json=CASE_PAYLOAD)
+    client.post("/api/cases/AT-2026-0047/confirm-export")
     seal_before = client.get("/api/cases/AT-2026-0047/export/csv").text
     client.post("/api/cases/AT-2026-0047/custody", json={"actor": "Analyst-01", "action": "New evidence added"})
+    client.post("/api/cases/AT-2026-0047/confirm-export")
     seal_after = client.get("/api/cases/AT-2026-0047/export/csv").text
     assert seal_before != seal_after  # seal_hash row differs because the chain changed

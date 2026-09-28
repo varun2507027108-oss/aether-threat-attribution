@@ -151,6 +151,13 @@ def test_export_stix_and_csv_from_investigated_case(client):
         "target_type": "onion",
     })
 
+    # Human-in-the-loop export gate: the dossier is not releasable until an
+    # investigator affirms it.
+    assert client.get("/api/cases/AT-2026-0102/export/stix").status_code == 409
+    gate = client.post("/api/cases/AT-2026-0102/confirm-export")
+    assert gate.status_code == 200
+    assert gate.json()["dossier_hash"]
+
     # STIX 2.1 Export
     r_stix = client.get("/api/cases/AT-2026-0102/export/stix")
     assert r_stix.status_code == 200

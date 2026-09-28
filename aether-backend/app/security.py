@@ -1,24 +1,30 @@
 """Security middleware, access control, SSRF defense, and forensic audit logging for Project AETHER.
 
 Implements:
-1. Investigator authentication & authorization dependency (API key / Bearer token).
+1. Multi-key RBAC investigator authentication (X-AETHER-KEY / Bearer / ?token=)
+   with investigator and auditor roles, constant-time key comparison, and a
+   read-only enforcement dependency.
 2. Defensive HTTP Security Headers (conditional HSTS on HTTPS only, X-Content-Type-Options, X-Frame-Options, CSP, Cache-Control).
 3. Request payload transmission limits (2MB protection against memory DoS).
-4. Sliding-window in-memory IP rate limiter with auto-eviction of expired records.
-5. SSRF and private-network target sanitization (blocking RFC 1918, loopback, and cloud metadata).
-6. Centralized forensic audit logger for Section 63, Bharatiya Sakshya Adhiniyam, 2023 (formerly s.65B, Indian Evidence Act, 1872) statutory compliance.
+4. Sliding-window in-memory rate limiter bucketed per API key *and* per client IP.
+5. SSRF and private-network target sanitization (blocking RFC 1918, loopback, cloud
+   metadata) plus an exact-hostname allowlist for outbound OSINT fetches.
+6. Centralized forensic audit logger for Section 63, Bharatiya Sakshya Adhiniyam, 2023
+   (formerly s.65B, Indian Evidence Act, 1872) statutory compliance.
 """
 
 from __future__ import annotations
 
+import hashlib
 import hmac
 import ipaddress
+import logging
 import os
 import re
 import time
 from collections import defaultdict, deque
 from datetime import datetime, timezone
-from typing import Callable, NamedTuple
+from typing import Callable, NamedTuple, Optional
 from urllib.parse import urlparse
 
 from fastapi import Depends, HTTPException, Request, Response, Security, status
@@ -28,6 +34,8 @@ from sqlalchemy.orm import Session
 from starlette.middleware.base import BaseHTTPMiddleware
 
 from app.models import AuditLog
+
+logger = logging.getLogger("aether.security")
 
 
 # ---------- Security Configuration ---------- #
@@ -54,6 +62,116 @@ class InvestigatorPrincipal(NamedTuple):
     role: str
     authenticated: bool
     method: str
+    key_id: str = "unknown"
+
+    @property
+    def can_write(self) -> bool:
+        """Whether this principal may create or mutate forensic state.
+
+        Auditors are read-only by design. They may read and export, because an
+        auditor who cannot export cannot audit; they may not create cases,
+        append custody entries, or confirm an export.
+        """
+        return self.role in WRITE_ROLES
+
+    @property
+    def can_confirm_export(self) -> bool:
+        """Only an investigator may authorize a dossier export.
+
+        The human-in-the-loop export gate is meaningless if an auditor can
+        satisfy it: the point is that a named human accepted responsibility for
+        releasing the dossier.
+        """
+        return self.role in EXPORT_CONFIRM_ROLES
+
+
+class ApiKeyRecord(NamedTuple):
+    key_id: str
+    key: str
+    role: str
+    label: str
+
+
+WRITE_ROLES = frozenset({"investigator"})
+EXPORT_CONFIRM_ROLES = frozenset({"investigator"})
+VALID_ROLES = frozenset({"investigator", "auditor"})
+
+
+def _parse_key_table(raw: str) -> list[ApiKeyRecord]:
+    """Parse ``"investigator:key-a,auditor:key-b"`` into key records.
+
+    Roles are validated rather than accepted blindly: an unknown role silently
+    inheriting investigator powers would be a privilege escalation from a typo.
+    Keys are compared in constant time at request time, never here.
+    """
+    records: list[ApiKeyRecord] = []
+    for entry in raw.split(","):
+        entry = entry.strip()
+        if not entry:
+            continue
+        role, separator, key = entry.partition(":")
+        role = role.strip().lower()
+        key = key.strip()
+        if not separator or not key:
+            logger.warning("Ignoring malformed AETHER_API_KEYS entry (expected 'role:key').")
+            continue
+        if role not in VALID_ROLES:
+            logger.warning(
+                "Ignoring AETHER_API_KEYS entry with unknown role %r (valid: %s).",
+                role, ", ".join(sorted(VALID_ROLES)),
+            )
+            continue
+        records.append(ApiKeyRecord(
+            key_id=f"{role}:{hashlib.sha256(key.encode('utf-8')).hexdigest()[:8]}",
+            key=key,
+            role=role,
+            label=role,
+        ))
+    return records
+
+
+def load_api_keys() -> list[ApiKeyRecord]:
+    """Resolve the active key table.
+
+    Precedence: ``AETHER_API_KEYS`` when set, otherwise the legacy single
+    ``AETHER_API_KEY``, which maps to the ``investigator`` role. A single shared
+    key stays fully backwards compatible; splitting roles out is opt-in.
+    """
+    raw_table = os.getenv("AETHER_API_KEYS", "").strip()
+    if raw_table:
+        records = _parse_key_table(raw_table)
+        if records:
+            return records
+        logger.warning("AETHER_API_KEYS was set but no valid entries parsed; falling back to AETHER_API_KEY.")
+
+    # Read the env var rather than the import-time constant so a reloaded config
+    # (or a test) sees the current value instead of whatever was set at boot.
+    legacy_key = os.getenv("AETHER_API_KEY", AETHER_API_KEY)
+    return [
+        ApiKeyRecord(
+            key_id="investigator:legacy",
+            key=legacy_key,
+            role="investigator",
+            label="legacy-single-key",
+        )
+    ]
+
+
+API_KEYS: list[ApiKeyRecord] = load_api_keys()
+LEGACY_API_KEY: str = AETHER_API_KEY
+
+
+def _match_key(token: str) -> Optional[ApiKeyRecord]:
+    """Constant-time lookup of a presented token against every configured key.
+
+    Every candidate is compared even after a match, so the response time does
+    not reveal which position matched or how many keys are configured.
+    """
+    matched: Optional[ApiKeyRecord] = None
+    for record in API_KEYS:
+        if hmac.compare_digest(token.encode("utf-8"), record.key.encode("utf-8")):
+            matched = record
+    return matched
 
 
 def verify_investigator_auth(
@@ -61,10 +179,11 @@ def verify_investigator_auth(
     api_key: str | None = Security(api_key_header_scheme),
     bearer: HTTPAuthorizationCredentials | None = Security(bearer_token_scheme),
 ) -> InvestigatorPrincipal:
-    """Validate investigator authentication token against AETHER_API_KEY.
-    
-    Accepts X-AETHER-KEY header or Authorization: Bearer <key>.
-    Uses constant-time comparison to prevent timing side-channel attacks.
+    """Validate investigator authentication and resolve the caller's role.
+
+    Accepts X-AETHER-KEY header, Authorization: Bearer <key>, or ?token=<key>
+    (the last exists only for EventSource, which cannot set headers).
+    Comparison is constant-time.
     """
     if not AETHER_REQUIRE_AUTH:
         return InvestigatorPrincipal(
@@ -72,6 +191,7 @@ def verify_investigator_auth(
             role="investigator",
             authenticated=False,
             method="dev_bypass",
+            key_id="dev_bypass",
         )
 
     token = None
@@ -87,7 +207,8 @@ def verify_investigator_auth(
         token = request.query_params["token"].strip()
         method = "query_param_token"
 
-    if not token or not hmac.compare_digest(token.encode("utf-8"), AETHER_API_KEY.encode("utf-8")):
+    record = _match_key(token) if token else None
+    if record is None:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid or missing AETHER authentication credentials. Supply 'X-AETHER-KEY' or 'Authorization: Bearer <key>'.",
@@ -96,11 +217,56 @@ def verify_investigator_auth(
 
     client_ip = request.client.host if request.client else "unknown"
     return InvestigatorPrincipal(
-        operator=f"INVESTIGATOR_{client_ip}",
-        role="investigator",
+        operator=f"{record.role.upper()}_{client_ip}",
+        role=record.role,
         authenticated=True,
         method=method,
+        key_id=record.key_id,
     )
+
+
+def require_write_access(
+    principal: InvestigatorPrincipal = Depends(verify_investigator_auth),
+) -> InvestigatorPrincipal:
+    """FastAPI dependency enforcing investigator (write) role.
+
+    Raises 403, not 401: the caller is authenticated, they are simply not
+    permitted to mutate. Returning 401 would send a legitimate client hunting
+    for a credential problem that does not exist.
+
+    The principal is pulled in via ``Depends`` rather than accepted as a plain
+    argument. FastAPI analyses a dependency's own signature, and a bare
+    ``InvestigatorPrincipal`` parameter is a NamedTuple, which it cannot classify
+    and tries to treat as a request body.
+    """
+    if not principal.can_write:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=(
+                f"Role '{principal.role}' is read-only. Custody mutation and case creation "
+                "require the investigator role. Auditors may read and export."
+            ),
+        )
+    return principal
+
+
+def require_export_confirmation_role(
+    principal: InvestigatorPrincipal = Depends(verify_investigator_auth),
+) -> InvestigatorPrincipal:
+    """FastAPI dependency restricting export affirmation to investigators.
+
+    An auditor who can authorize their own release has not reviewed anything, so
+    this is strictly narrower than :func:`require_write_access`.
+    """
+    if not principal.can_confirm_export:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=(
+                f"Role '{principal.role}' cannot affirm an export. Only an investigator may "
+                "release a dossier; auditors may read, verify, and export the custody ledger."
+            ),
+        )
+    return principal
 
 
 # ---------- Security Response Headers Middleware ---------- #
@@ -179,11 +345,20 @@ class PayloadLimitMiddleware(BaseHTTPMiddleware):
 # ---------- In-Memory IP Rate Limiter Middleware ---------- #
 
 class RateLimitMiddleware(BaseHTTPMiddleware):
-    """In-memory sliding-window rate limiter per client IP with auto-eviction."""
+    """In-memory sliding-window rate limiter with auto-eviction.
+
+    Buckets are keyed by ``(api_key_id, client_ip)`` when a key is present and
+    by client IP alone otherwise. Keying on the IP alone means every investigator
+    behind one NAT or egress gateway shares a single budget, so a team of ten
+    cannot work: the ninth investigator is throttled because the eighth ran a
+    heavy module. Keying on the credential *in addition to* the IP bounds both
+    abuse from one key spraying from many hosts, and abuse from one host
+    rotating many keys.
+    """
 
     # Class-level storage to permit test harness isolation reset
-    general_hits: dict[str, deque[float]] = defaultdict(deque)
-    heavy_hits: dict[str, deque[float]] = defaultdict(deque)
+    general_hits: dict[tuple[str, str], deque[float]] = defaultdict(deque)
+    heavy_hits: dict[tuple[str, str], deque[float]] = defaultdict(deque)
     last_cleanup: float = time.time()
 
     @classmethod
@@ -200,14 +375,41 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         RateLimitMiddleware.last_cleanup = now
         cutoff = now - 120
         for hit_map in (self.general_hits, self.heavy_hits):
-            stale_ips = []
-            for ip, timestamps in hit_map.items():
+            stale = []
+            for bucket, timestamps in hit_map.items():
                 while timestamps and timestamps[0] < cutoff:
                     timestamps.popleft()
                 if not timestamps:
-                    stale_ips.append(ip)
-            for ip in stale_ips:
-                del hit_map[ip]
+                    stale.append(bucket)
+            for bucket in stale:
+                del hit_map[bucket]
+
+    @staticmethod
+    def _bucket_key(request: Request) -> tuple[str, str]:
+        """Resolve the (key_id, client_ip) bucket for a request.
+
+        The key is read straight from the request rather than through the auth
+        dependency, because this middleware runs before dependencies and must not
+        depend on them. A malformed or unknown key falls back to a distinct
+        ``invalid`` bucket rather than joining the anonymous one, so unauthenticated
+        traffic cannot be used to exhaust the shared anonymous budget and lock out
+        legitimate callers who omitted a key.
+        """
+        client_ip = request.client.host if request.client else "127.0.0.1"
+        token = request.headers.get("X-AETHER-KEY")
+        if not token:
+            authorization = request.headers.get("Authorization", "")
+            if authorization.lower().startswith("bearer "):
+                token = authorization[7:].strip()
+        if not token:
+            token = request.query_params.get("token", "")
+
+        token = (token or "").strip()
+        if not token:
+            return ("anonymous", client_ip)
+
+        record = _match_key(token)
+        return (record.key_id if record else "invalid-key", client_ip)
 
     async def dispatch(self, request: Request, call_next: Callable) -> Response:
         # Exempt health check and documentation endpoints from rate limiting
@@ -216,6 +418,7 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
             return await call_next(request)
 
         client_ip = request.client.host if request.client else "127.0.0.1"
+        bucket = self._bucket_key(request)
         now = time.time()
         window_start = now - 60.0
 
@@ -224,7 +427,7 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         # 1. Check heavy forensic computation endpoints
         is_heavy = path.startswith("/api/cases/investigate") or path.startswith("/api/analysis")
         if is_heavy:
-            heavy_q = self.heavy_hits[client_ip]
+            heavy_q = self.heavy_hits[bucket]
             while heavy_q and heavy_q[0] < window_start:
                 heavy_q.popleft()
             if len(heavy_q) >= RATE_LIMIT_INVESTIGATE_PER_MINUTE:
@@ -240,7 +443,7 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
             heavy_q.append(now)
 
         # 2. Check general API rate limit
-        gen_q = self.general_hits[client_ip]
+        gen_q = self.general_hits[bucket]
         while gen_q and gen_q[0] < window_start:
             gen_q.popleft()
         if len(gen_q) >= RATE_LIMIT_PER_MINUTE:

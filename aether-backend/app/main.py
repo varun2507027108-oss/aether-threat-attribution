@@ -124,6 +124,25 @@ def health() -> dict:
     }
 
 
+@app.get("/api/auth/whoami", tags=["system"])
+def whoami(principal: InvestigatorPrincipal = Depends(verify_investigator_auth)) -> dict:
+    """Report the authenticated principal's role and capabilities.
+
+    The frontend reads this to decide which controls to render, and an auditor
+    uses it to confirm which key is actually in play before doing anything.
+    """
+    return {
+        "operator": principal.operator,
+        "role": principal.role,
+        "authenticated": principal.authenticated,
+        "method": principal.method,
+        "key_id": principal.key_id,
+        "can_write": principal.can_write,
+        "can_export": True,
+        "can_confirm_export": principal.can_confirm_export,
+    }
+
+
 # ---------- Protected Custody & Audit Endpoints ---------- #
 
 @app.get("/api/custody/verify", response_model=VerifyResult, tags=["custody"])

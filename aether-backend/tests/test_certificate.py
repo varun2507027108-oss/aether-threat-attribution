@@ -47,7 +47,12 @@ def test_export_certificate_success(client: TestClient):
     assert e2.status_code == 201
     tip_hash_e2 = e2.json()["entry_hash"]
 
-    # 2. Fetch certificate PDF
+    # 2. Affirm release, then fetch the certificate PDF.
+    # The affirmation appends its own custody entry, so the chain tip at export
+    # time is the EXPORT_CONFIRMED entry, not the last investigative action.
+    gate = client.post("/api/cases/AT-2026-0047/confirm-export")
+    assert gate.status_code == 200, "human export affirmation must succeed for an investigator"
+    tip_hash_at_export = gate.json()["entry_hash"]
     res = client.get("/api/cases/AT-2026-0047/export/certificate")
     assert res.status_code == 200
     assert res.headers["content-type"] == "application/pdf"
@@ -60,7 +65,8 @@ def test_export_certificate_success(client: TestClient):
 
     # Extractable text checks
     assert b"AT-2026-0047" in pdf_bytes, "Case ID must be present in extractable text"
-    assert tip_hash_e2.encode("utf-8") in pdf_bytes, "Tip hash must be present in extractable text"
+    assert tip_hash_at_export.encode("utf-8") in pdf_bytes, "Chain tip at export must be in the certificate"
+    assert tip_hash_e2.encode("utf-8") != tip_hash_at_export, "control: the affirmation moved the tip"
     assert b"Bharatiya Sakshya Adhiniyam" in pdf_bytes, "BSA 2023 statutory citation must be in PDF"
     assert b"verify.html" in pdf_bytes, "Out-of-band verification instructions must be in PDF"
 

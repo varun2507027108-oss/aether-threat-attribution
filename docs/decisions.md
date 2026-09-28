@@ -171,6 +171,25 @@ This document records architectural, cryptographic, and operational decisions ma
   9. *Corpus Must Clear Its Own Gates*: The first draft of `docs/validation/stylometry_corpus.json` had 19–32 token samples, so Delta and NCD were gated on *every* pair and the corpus silently validated nothing. Samples are now 80–124 tokens. The test suite asserts every sample clears both floors, so a future edit cannot quietly disable the new methods.
   10. *Non-ASCII Authoring Hazard*: The corpus was first written with literal Devanagari and emoji, and the authoring toolchain stripped them, producing a "Hinglish" corpus with none — while the tests still passed, because the assertions were themselves stripped. The corpus was regenerated from `\uXXXX` escapes and the Devanagari/emoji presence is now asserted with escape-based checks that cannot be silently stripped.
 
+---
+
+## Decision 011 — Multi-Key RBAC, Human Export Gate, and DPDP Retention (Phase 10)
+- **Date**: 2026-09-27
+- **Status**: Accepted
+- **Context**: A single shared API key gives every holder identical power, and an export that fires on request has no named human behind it. Both are unacceptable for a system whose output is filed under **Section 63, Bharatiya Sakshya Adhiniyam, 2023 (formerly s.65B, Indian Evidence Act, 1872)**: the first cannot answer "who did this", the second cannot answer "who released this".
+- **Decisions**:
+  1. *Two Roles, Narrowly Drawn*: `investigator` (full) and `auditor` (read + custody-ledger export). The auditor boundary is deliberately drawn around the **custody ledger, not the dossier**: the ledger is the integrity record and `verify.html` exists so a third party can audit it, so gating the evidence of tampering behind permission to tamper would invert the control. An auditor cannot satisfy the export gate, because a reviewer who can authorize their own release has not reviewed anything.
+  2. *Unknown Roles Are Rejected, Not Defaulted*: `_parse_key_table()` drops any entry whose role is not in the allowlist and logs it. Defaulting an unrecognized role to `investigator` would turn a configuration typo into a privilege escalation in a system that produces courtroom evidence.
+  3. *403, Not 401, For Authorization Failures*: An auditor calling a POST is authenticated and simply not permitted. Returning 401 sends a legitimate client hunting for a credential problem that does not exist. Both gates use 409, which correctly signals a state problem rather than an identity problem.
+  4. *Confirmation Is Bound To A Dossier Hash, Not A Case*: A confirmation is valid only while the dossier hash still matches. A boolean flag would let a confirmation given for a partial dossier silently authorize release of a fuller one — the exact failure mode of an ungated boolean. A test drives a full investigation *after* confirmation and asserts the gate re-closes.
+  5. *The Custody Ledger Is Ungated*: `/export/custody` deliberately bypasses the gate, with the reasoning stated in the code. Every dossier-releasing export routes through one `_load_case_for_export()` helper so a new export route cannot forget the check.
+  6. *FastAPI Gotcha Documented*: `require_write_access` takes its principal via `Depends(verify_investigator_auth)` rather than as a bare argument. FastAPI analyses a dependency's own signature, and a bare `InvestigatorPrincipal` parameter is a `NamedTuple` it cannot classify, so it tries to treat the request as form data and fails at import time with a `python-multipart` error that points nowhere near the real cause.
+  7. *Rate Limits Are Per Credential And Per IP*: Buckets key on `(key_id, client_ip)`. IP-only limiting means investigators behind one NAT share a budget, and the ninth analyst is throttled because the eighth ran a heavy module. Unauthenticated traffic gets its own `invalid-key` bucket rather than the shared `anonymous` one, so it cannot be used to lock out legitimate callers.
+  8. *Purge Is Dry-Run By Default And Records Itself*: `AETHER_RETENTION_DAYS` (365) bounds retention, measured from `created_at` rather than last activity — purpose limitation means a case cannot be kept open forever by continuing to touch it. A committed purge writes a manifest hash to a **case-independent** custody chain (`case_id = 0`), because logging the purge inside the case would destroy the only record that the destruction was authorized. A no-op purge deliberately writes nothing, so scheduled runs that find nothing do not bury the ones that mattered.
+  9. *Export Confirmation Moves The Chain Tip*: Affirming an export appends an entry, so the certificate's certified tip is the confirmation entry rather than the last investigative action. A test was updated to assert exactly that, which is the point: the certificate should name the tip that was actually current when the dossier was released.
+  10. *Legacy Behaviour Preserved*: The single `AETHER_API_KEY` maps to `investigator` and the zero-config dev path is unchanged. Role separation is opt-in, and no existing test needed its credentials changed — only an added export confirmation where the test was exercising a gated export.
+
+
 
 
 
