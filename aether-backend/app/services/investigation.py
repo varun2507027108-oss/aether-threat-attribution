@@ -230,30 +230,51 @@ async def _run_module_stylometry(
     ev = Evidence(
         case_id=case_id,
         evidence_type="STYLOMETRY",
-        title="Stylometric n-gram Cosine Similarity",
-        raw_value=f"Cosine {stylo_result['similarity_score']:.4f}",
+        title="Stylometric Author-Profile Similarity (Cosine + Burrows' Delta + LZW-NCD)",
+        raw_value=(
+            f"Ensemble {stylo_result['similarity_score']:.4f} "
+            f"(cosine {stylo_result['method_scores']['cosine']:.4f}, "
+            f"delta {stylo_result['method_scores']['delta'].get('similarity')}, "
+            f"ncd {stylo_result['method_scores']['ncd'].get('similarity')})"
+        ),
         normalized_hash=hashlib.sha256(target_sample.encode()).hexdigest(),
         confidence=round(stylo_result["similarity_score"], 4),
         provenance=stylo_prov,
-        source_reference="AETHER NLP Stylometry Lab / Char 3-gram + Word n-gram Vectorizer",
+        source_reference="AETHER NLP Stylometry Lab / n-gram + Burrows' Delta + LZW NCD",
         metadata_json={
             "similarity_score": stylo_result["similarity_score"],
+            "engine": stylo_result["engine"],
+            "method_scores": stylo_result["method_scores"],
+            "ensemble": stylo_result["ensemble"],
+            "threshold": stylo_result["threshold"],
+            "fpr_at_threshold": stylo_result["fpr_at_threshold"],
+            "confidence_tier": stylo_result["confidence_tier"],
             "breakdown": stylo_result["breakdown"],
+            "legacy_cosine_composite": stylo_result["legacy_cosine_composite"],
+            "script_profile_target": stylo_result["script_profile_a"],
+            "script_profile_reference": stylo_result["script_profile_b"],
             "shared_tokens": stylo_result.get("shared_tokens_sample", []),
             "reference_author": "ZeroTrace / APT-091",
-            "evidentiary_caveat": "Stylometric similarity reflects writing style and lexical overlap; linguistic mimicry, translation tools, or multiple authors within a group can produce false positives. Corroboration required.",
+            "evidentiary_caveat": stylo_result["evidentiary_caveat"],
         },
         created_at=_utcnow(),
     )
     timeline_entry = {
         "step": 3,
-        "title": "Stylometry NLP Analysis Complete",
-        "description": f"Cosine similarity {stylo_result['similarity_score'] * 100:.1f}% computed against known threat persona posts.",
+        "title": "Stylometry Analysis Complete",
+        "description": (
+            f"Ensemble {stylo_result['similarity_score'] * 100:.1f}% against known threat "
+            f"persona posts ({stylo_result['confidence_tier']})."
+        ),
         "timestamp": _utcnow_iso(),
         "status": "COMPLETED",
     }
-    custody_action = f"Stylometric NLP cosine similarity evaluated ({stylo_result['similarity_score'] * 100:.1f}%) against ZeroTrace corpus."
-    summary = f"Linguistic cosine similarity {stylo_result['similarity_score'] * 100:.1f}%"
+    custody_action = (
+        f"Stylometric author-profile similarity evaluated (ensemble "
+        f"{stylo_result['similarity_score'] * 100:.1f}%, cosine {stylo_result['method_scores']['cosine'] * 100:.1f}%, "
+        f"threshold {stylo_result['threshold']}) against ZeroTrace corpus."
+    )
+    summary = f"Stylometric ensemble {stylo_result['similarity_score'] * 100:.1f}%"
 
     return ModuleExecutionResult(
         module_key="stylometry",
