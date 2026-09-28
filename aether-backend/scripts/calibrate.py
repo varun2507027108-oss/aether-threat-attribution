@@ -326,6 +326,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--reliability-png", type=Path, default=DEFAULT_RELIABILITY_PNG)
     parser.add_argument("--csv", type=Path, default=None, help="write per-case predictions to CSV")
     parser.add_argument("--no-plot", action="store_true", help="skip reliability diagram rendering")
+    parser.add_argument("--no-report", action="store_true", help="skip writing the markdown report")
     parser.add_argument("--no-suggest", action="store_true", help="skip the LR multiplier scan")
     args = parser.parse_args(argv)
 
@@ -375,7 +376,9 @@ def main(argv: Sequence[str] | None = None) -> int:
             continue
         print(f"[{entry['low']:.1f}, {entry['high']:.1f})  n={entry['count']:<3} observed={entry['observed']:.4f}")
 
-    if args.no_plot:
+    if args.no_report:
+        print("\nreport and diagram: skipped (--no-report)")
+    elif args.no_plot:
         print("\nreliability diagram: skipped (--no-plot)")
     elif write_reliability_diagram(bins, args.reliability_png):
         print(f"\nreliability diagram: {args.reliability_png}")

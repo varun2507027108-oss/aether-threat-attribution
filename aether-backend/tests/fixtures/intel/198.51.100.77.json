@@ -2,14 +2,27 @@
   "source": "AETHER Forensic Benchmark Corpus (Curated Threat Telemetry)",
   "asn": "AS60729 Zayo Bandwidth",
   "org": "ColoCrossing (UNYET / Zayo)",
-  "ports": [22, 80, 443],
+  "ports": [
+    22,
+    80,
+    443
+  ],
   "geo": "Buffalo, New York, United States",
-  "hostnames": ["static-assets-cdn-metrics.xyz", "grafana.monitoring-metrics.xyz"],
-  "banners": ["Apache/2.4.52 (Ubuntu)", "sshd: Ubuntu-3ubuntu0.5"],
+  "hostnames": [
+    "static-assets-cdn-metrics.xyz",
+    "grafana.monitoring-metrics.xyz"
+  ],
+  "banners": [
+    "Apache/2.4.52 (Ubuntu)",
+    "sshd: Ubuntu-3ubuntu0.5"
+  ],
   "favicon_mmh3": 1994783958,
   "jarm": "2ad2ad0002ad2ad00042d42d0002ad4da94a7375a80572e8cb2716efdbdbdb",
-  "ssl_cert_fingerprint": "c47a0b91e2f3d85c6147ba9e02df63c8a7715e0b4d92c8f36a1e74b05d9c2831f",
-  "crt_sh_domains": ["monitoring-metrics.xyz", "static-assets-cdn-metrics.xyz"],
+  "ssl_cert_fingerprint": "c47a0b91e2f3d85c6147ba9e02df63c8aa8c36fd20e9ab7416c58d3f2e19b0a7",
+  "crt_sh_domains": [
+    "monitoring-metrics.xyz",
+    "static-assets-cdn-metrics.xyz"
+  ],
   "last_observed_utc": "2026-09-11T11:38:12Z",
   "corpus_notes": "Benign control sample: standard Ubuntu Apache, default self-signed-adjacent certificate, no anomalous exposure. Used as a negative example so confidence scoring can be shown to fall below reporting thresholds."
 }

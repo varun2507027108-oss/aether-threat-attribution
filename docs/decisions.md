@@ -189,6 +189,25 @@ This document records architectural, cryptographic, and operational decisions ma
   9. *Export Confirmation Moves The Chain Tip*: Affirming an export appends an entry, so the certificate's certified tip is the confirmation entry rather than the last investigative action. A test was updated to assert exactly that, which is the point: the certificate should name the tip that was actually current when the dossier was released.
   10. *Legacy Behaviour Preserved*: The single `AETHER_API_KEY` maps to `investigator` and the zero-config dev path is unchanged. Role separation is opt-in, and no existing test needed its credentials changed — only an added export confirmation where the test was exercising a gated export.
 
+---
+
+## Decision 012 — CI, Contract and Golden Tests, Documentation Sync (Phase 12)
+- **Date**: 2026-09-27
+- **Status**: Accepted
+- **Context**: A hardening sprint that ends with 470 tests needs a pipeline that catches a regression nobody is watching for, and documentation that matches the code rather than describing an intention.
+- **Decisions**:
+  1. *Node Presence Is Asserted In CI, Not Assumed*: `tests/test_verify_html.py` shells out to Node to prove `verify.html`'s JavaScript produces the same canonical bytes as `app.services.custody`. That test **skips itself** when Node is absent — which is precisely how a suite that proves the crypto is identical to the crypto can quietly stop proving anything. The CI job installs Node and runs the parity file on its own, so a silent skip becomes a visible missing step.
+  2. *Golden STIX Compares Semantics, Not Bytes*: A STIX bundle regenerates `created`, `modified`, `valid_from`, `published`, and every object `id` on each build, so byte comparison would fail constantly and train reviewers to ignore the signal. The normalizer resolves `source_ref` / `target_ref` / `object_refs` to the *referenced object's* stable identity (type + name/pattern) before dropping ids, so the golden still asserts the relationships point at the right things rather than merely that the keys exist. Regeneration is behind `UPDATE_GOLDEN=1` and is never a side effect of a failing test.
+  3. *Determinism Is Itself Asserted*: `test_golden_is_deterministic_across_builds` runs the normalizer twice and compares. When the golden first failed, the residual nondeterminism was `valid_from` / `published` wall-clock stamps — a leak the golden test would otherwise have normalized away silently on every run.
+  4. *The Contract Test Found Two Real Bugs On First Run*: Replaying the Phase 5 corpus through the provider exposed (a) two fixtures carrying **65-character** certificate fingerprints that `classify_certificate` would reject in production, and (b) `MockProvider._unavailable()` returning a **smaller field set** than the success record — so a consumer branching on `status` would raise `KeyError` mid-investigation instead of getting "no data". Both are fixed. The unavailable record now carries every field with an empty value, and a test asserts the two shapes match.
+  5. *The Contract Test Also Found A crt.sh Parsing Bug*: `str(row.get("name_value"))` on a JSON `null` yields the literal string `"None"`, which the parser then admitted as a phantom subject. A null `name_value` from the live API would have produced a fake overlap finding. The parser now type-checks before stringifying.
+  6. *CI Matrixes Match The Declared Support Floor*: Backend on Python 3.11/3.12/3.13, frontend on Node 20/24, with `fail-fast: false` so one failing version does not hide the others. `concurrency` cancels superseded runs, because nobody waits on a stale build.
+  7. *The Zero-Config Path Is A CI Step*: The backend job runs `migrate_db.py` with **no environment variables set**. The sprint's first acceptance criterion is that the app boots with nothing configured, so that is asserted rather than assumed.
+  8. *Calibration Budgets Are Enforced, Not Reported*: CI runs `calibrate.py` and `validate_stylometry.py --check-threshold 0.39`. A model whose false-positive rate drifts past its budget fails the build instead of quietly becoming worse.
+  9. *`verify.html` Sync Is Asserted*: The file exists at the repo root and in `aether-frontend/public/`. A stale copy would mean the in-app shortcut serves a different verifier than the standalone one, so CI diffs them.
+  10. *Documentation States Limits, Not Just Capabilities*: Both READMEs now list the endpoints that return 409 until confirmed, the endpoint that is deliberately never gated, the "internally consistent is not authentic" distinction, the single-worker uvicorn assumption, and the fact that `calibrate.py` prints LR suggestions without applying them.
+
+
 
 
 

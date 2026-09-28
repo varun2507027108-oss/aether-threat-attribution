@@ -25,18 +25,29 @@ Everything else on the slide — FastAPI, PostgreSQL, Neo4j, Elasticsearch, STIX
 
 | Method | Path | Purpose |
 |---|---|---|
-| GET | `/api/health` | Liveness check |
-| POST | `/api/cases` | Create a case |
+| GET | `/api/health` | Liveness check, including the resolved `intel_mode` |
+| GET | `/api/auth/whoami` | Current principal: role, key id, and capabilities |
+| POST | `/api/cases` | Create a case *(investigator)* |
+| GET | `/api/cases` | List cases |
 | GET | `/api/cases/{evidence_id}` | Read a case with its full custody ledger |
-| POST | `/api/cases/{evidence_id}/custody` | Append a custody entry (extends the hash chain) |
-| GET | `/api/cases/{evidence_id}/verify` | Recompute and verify the hash chain; returns `valid`, `broken_at_seq`, and the digital seal |
-| GET | `/api/cases/{evidence_id}/export/stix` | Download a STIX 2.1 bundle |
-| GET | `/api/cases/{evidence_id}/export/csv` | Download the forensic CSV |
-| POST | `/api/analysis/stylometry` | Comparative stylometry (n-gram cosine similarity, TTR, punctuation frequency) |
+| POST | `/api/cases/investigate` | Run the investigation. `202` + job id by default, `?sync=true` for the legacy blocking response *(investigator)* |
+| GET | `/api/cases/{evidence_id}/investigation` | Read a completed investigation result |
+| POST | `/api/cases/{evidence_id}/custody` | Append a custody entry (extends the hash chain) *(investigator)* |
+| GET | `/api/cases/{evidence_id}/verify` | Recompute the chain: `hash_ok`, `signature_ok`, `broken_at_seq`, `failure_layer`, last checkpoint, anchor type |
+| GET | `/api/jobs/{job_id}` | Job snapshot with per-module status |
+| GET | `/api/jobs/{job_id}/events` | SSE stream: state replay, live module updates, terminal event |
+| GET | `/api/cases/{evidence_id}/export/gate` | Whether the current dossier is cleared for release |
+| POST | `/api/cases/{evidence_id}/confirm-export` | Affirm release; appends a signed `EXPORT_CONFIRMED` entry *(investigator only)* |
+| GET | `/api/cases/{evidence_id}/export/stix` | STIX 2.1 bundle — **409 until confirmed** |
+| GET | `/api/cases/{evidence_id}/export/csv` | Forensic CSV incl. per-indicator LR contributions — **409 until confirmed** |
+| GET | `/api/cases/{evidence_id}/export/certificate` | Statutory certificate PDF — **409 until confirmed** |
+| GET | `/api/cases/{evidence_id}/export/custody` | Canonical custody ledger CSV — **never gated**, so a third party can audit it |
+| POST | `/api/analysis/stylometry` | Stylometry ensemble: cosine + Burrows' Delta + LZW/NCD, with per-method scores, threshold, and FPR |
 | POST | `/api/analysis/diurnal` | Circadian 24h sleep-trough detection & operational UTC timezone inference |
 | POST | `/api/analysis/graph` | Entity relationship graph and Neo4j Cypher statement generation |
 | POST | `/api/analysis/btc-cluster` | Multi-input Bitcoin transaction clustering heuristic |
-| POST | `/api/analysis/score` | Calibrated confidence score ($C_{attr}$) calculation with contradiction deduction |
+| POST | `/api/analysis/score` | Calibrated attribution: naive-Bayes LR fusion + D-S conflict, with full explainability |
+| GET | `/api/audit-logs` | Immutable audit events |
 
 Interactive API docs: `http://localhost:8000/docs` once running.
 
@@ -64,10 +75,26 @@ That script hits the real running API — creates a case, appends custody entrie
 cd aether-backend
 python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements-dev.txt
+python migrate_db.py
 uvicorn app.main:app --reload
 ```
 
 By default this uses a local SQLite file (`aether_dev.db`) instead of Postgres, so you can develop without Docker. Set `DATABASE_URL` to point at Postgres if you want parity with production.
+
+**No configuration is required.** The app boots with an empty environment: no API
+keys, no Tor, no TSA, no Shodan. `AETHER_API_KEY` falls back to a documented dev
+key, `AETHER_API_KEYS` (role-separated keys) is opt-in, and every external
+dependency degrades to a soft-fail with partial results rather than blocking a
+run. See `.env.example` for the full list, and `../docs/governance.md` for what
+each control does and why.
+
+## Two environments, one code path
+
+`AETHER_INTEL_MODE=mock` serves the offline corpus in `tests/fixtures/intel/`
+and makes **zero outbound requests**. Anything else queries Shodan/Censys and
+crt.sh. The test suite forces mock mode before the app is imported, so a
+developer with `SHODAN_API_KEY` exported in their shell still gets a hermetic
+run.
 
 ## Tests
 
@@ -76,17 +103,42 @@ pip install -r requirements-dev.txt
 pytest -q
 ```
 
-26 tests, all against real code paths — no mocked business logic:
-- `test_custody.py`: the hash chain itself, including tamper detection (edited entry, edited-and-rehashed entry, deleted entry)
-- `test_export.py`: STIX bundle validity via `stix2.parse` (the official parser, not a hand check), CSV structure and formula-injection defusing
-- `test_api.py`: real HTTP requests through FastAPI's `TestClient` against a real (in-memory) SQLite database, including a test that tampers with a row directly at the database layer and confirms `/verify` catches it
+470 tests, all against real code paths — no mocked business logic:
 
-Run against the exact pinned dependency versions in `requirements.txt` before every delivery, not just against whatever happens to be installed.
+| File | Covers |
+|---|---|
+| `test_custody.py` | The hash chain itself: edited entry, edited-and-rehashed entry, deleted entry |
+| `test_custody_signing.py` | Ed25519 signing, the recompute attack, RFC 3161 anchoring, soft-fail on a dead TSA |
+| `test_verify_html.py` | JS/Python canonical-form parity (extracts the JS from `verify.html` and runs it under Node) |
+| `test_export.py`, `test_export_golden.py` | STIX 2.1 validity via `stix2.parse`, CSV structure, formula-injection defusing, golden bundle contract |
+| `test_certificate.py` | Statutory PDF: magic bytes, extractable case ID, chain tip, BSA 2023 citation |
+| `test_scoring_calibration.py` | LR fusion, D-S conflict, monotonicity, Brier/AUC, calibration script end to end |
+| `test_stylometry_v2.py` | Burrows' Delta, LZW/NCD, NFKC + Hinglish/emoji normalization, ensemble, FPR budget |
+| `test_tls_ct_vectors.py` | Certificate fingerprinting, commodity-CA exclusion, crt.sh parsing, outbound allowlist |
+| `test_intel_mode.py`, `test_intel_contracts.py` | Mode resolution precedence, fixture corpus contract and determinism |
+| `test_governance_rbac.py` | Role matrix, per-key rate limiting, export gate, DPDP retention and purge chain |
+| `test_jobs_sse.py` | Async job lifecycle, partial-module tolerance, SSE replay and terminal event |
+| `test_api.py`, `test_investigation.py` | Real HTTP through `TestClient` against real in-memory SQLite, including a database-level tamper |
 
-## Not yet built (later stages)
+`tests/test_verify_html.py` shells out to Node. It skips itself if Node is
+absent, and CI asserts Node is present so the skip can never silently turn those
+parity tests into a no-op.
 
-1. Neo4j knowledge graph
+### Calibration and validation tools
+
+```bash
+python scripts/calibrate.py --check-threshold 0.72   # Brier/AUC over docs/validation/historical_cases.json
+python scripts/validate_stylometry.py --check-threshold 0.39
+python scripts/purge_expired.py                       # DPDP retention, dry-run by default
+python scripts/gen_signing_key.py                     # Ed25519 keypair
+```
+
+`calibrate.py` prints LR suggestions but **never applies them**; a greedy scan
+over a small corpus will happily suggest pure overfitting.
+
+## Not yet built
+
+1. Neo4j knowledge graph persistence (Cypher statements are generated; no database behind them)
 2. Elasticsearch indexing and search
-3. Stylometry model (PyTorch, small trained model)
-4. Tor/SOCKS5 + Shodan/Censys recon client (clearnet-authorized targets only)
-5. Frontend wiring: `index.html` calling this API, falling back to its built-in demo data if the API is unreachable
+3. Multi-worker job execution — the async pipeline assumes a single uvicorn worker; `arq` or an external queue is the upgrade path
+4. A trained transformer stylometry model (the calibrated ensemble is shipped instead)

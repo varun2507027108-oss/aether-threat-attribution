@@ -1,0 +1,120 @@
+{
+  "objects": [
+    {
+      "description": "Producer of this bundle. Case AT-2026-0047.",
+      "identity_class": "system",
+      "name": "AETHER Forensic Attribution Workbench",
+      "type": "identity"
+    },
+    {
+      "confidence": 85,
+      "created_by_ref": "identity::AETHER Forensic Attribution Workbench",
+      "description": "Root of a co-spent peel-chain cluster.",
+      "indicator_types": [
+        "attribution"
+      ],
+      "name": "Bitcoin peel-chain root address",
+      "pattern": "[user-account:account_login = '1A1zP1eP5QGefi2DMPTfTL5SLmv7DivfNa']",
+      "pattern_type": "stix",
+      "pattern_version": "2.1",
+      "type": "indicator"
+    },
+    {
+      "confidence": 90,
+      "created_by_ref": "identity::AETHER Forensic Attribution Workbench",
+      "description": "40 character PGP fingerprint reused across forum profiles.",
+      "indicator_types": [
+        "attribution"
+      ],
+      "name": "PGP key fingerprint linked to actor",
+      "pattern": "[x509-certificate:hashes.'SHA-1' = '4d9e27bc918a4f02c73109ae2c5b88e140fa7d3c']",
+      "pattern_type": "stix",
+      "pattern_version": "2.1",
+      "type": "indicator"
+    },
+    {
+      "confidence": 95,
+      "created_by_ref": "identity::AETHER Forensic Attribution Workbench",
+      "description": "Origin clearnet IP. Munich, Germany, AS16276 OVH SAS.",
+      "indicator_types": [
+        "attribution"
+      ],
+      "name": "Recovered origin IP of dark web market",
+      "pattern": "[ipv4-addr:value = '185.220.101.42']",
+      "pattern_type": "stix",
+      "pattern_version": "2.1",
+      "type": "indicator"
+    },
+    {
+      "type": "ipv4-addr",
+      "value": "185.220.101.42"
+    },
+    {
+      "created_by_ref": "identity::AETHER Forensic Attribution Workbench",
+      "description": "Origin IP indicates actor infrastructure.",
+      "relationship_type": "indicates",
+      "source_ref": "indicator::Recovered origin IP of dark web market",
+      "target_ref": "threat-actor::APT-091 (RedShark)",
+      "type": "relationship"
+    },
+    {
+      "created_by_ref": "identity::AETHER Forensic Attribution Workbench",
+      "description": "PGP fingerprint indicates actor.",
+      "relationship_type": "indicates",
+      "source_ref": "indicator::PGP key fingerprint linked to actor",
+      "target_ref": "threat-actor::APT-091 (RedShark)",
+      "type": "relationship"
+    },
+    {
+      "created_by_ref": "identity::AETHER Forensic Attribution Workbench",
+      "description": "BTC cluster indicates actor.",
+      "relationship_type": "indicates",
+      "source_ref": "indicator::Bitcoin peel-chain root address",
+      "target_ref": "threat-actor::APT-091 (RedShark)",
+      "type": "relationship"
+    },
+    {
+      "created_by_ref": "identity::AETHER Forensic Attribution Workbench",
+      "description": "Calibrated confidence 94.8%.",
+      "name": "Attribution Report AT-2026-0047",
+      "object_refs": [
+        "threat-actor::APT-091 (RedShark)",
+        "indicator::Recovered origin IP of dark web market",
+        "indicator::PGP key fingerprint linked to actor",
+        "indicator::Bitcoin peel-chain root address",
+        "ipv4-addr::185.220.101.42"
+      ],
+      "report_types": [
+        "attribution",
+        "threat-actor"
+      ],
+      "type": "report"
+    },
+    {
+      "aliases": [
+        "ZeroTrace",
+        "ShadowByte",
+        "RedShark"
+      ],
+      "confidence": 95,
+      "created_by_ref": "identity::AETHER Forensic Attribution Workbench",
+      "description": "Suspected actor operating under aliases: ZeroTrace, ShadowByte, RedShark. Calibrated posterior 95% (prior 0.1, log-LR total 2.9147).",
+      "external_references": [
+        {
+          "external_id": "AT-2026-0047",
+          "source_name": "aether-evidence-id"
+        },
+        {
+          "description": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "source_name": "sha256-seal"
+        }
+      ],
+      "name": "APT-091 (RedShark)",
+      "threat_actor_types": [
+        "criminal"
+      ],
+      "type": "threat-actor"
+    }
+  ],
+  "type": "bundle"
+}

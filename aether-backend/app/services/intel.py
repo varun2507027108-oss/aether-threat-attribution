@@ -729,19 +729,32 @@ class MockProvider(IntelProvider):
         return record
 
     def _unavailable(self, target: str, canonical: str) -> Dict[str, Any]:
+        # The unavailable record deliberately carries the SAME field set as a
+        # successful one, with empty values. A consumer should not have to branch
+        # on `status` just to read the record, and a missing key here would
+        # surface as a KeyError in the middle of an investigation rather than as
+        # a "no data" result.
         return {
             "status": "SOURCE_UNAVAILABLE",
             "source": "AETHER Offline Intel Corpus (mock mode)",
             "ip": target,
+            "canonical_target": canonical,
+            "asn": "Unknown",
+            "org": "Unknown",
+            "ports": [],
+            "geo": "Unknown",
+            "hostnames": [],
+            "banners": [],
+            "favicon_mmh3": None,
+            "jarm": None,
+            "ssl_cert_fingerprint": None,
+            "crt_sh_domains": [],
+            "mode": self.mode,
+            "raw_osint": None,
             "message": (
                 f"No offline fixture for target '{canonical}' and live mode is disabled "
                 f"(AETHER_INTEL_MODE=mock, SHODAN_API_KEY unset)."
             ),
-            "ports": [],
-            "geo": "Unknown",
-            "asn": "Unknown",
-            "org": "Unknown",
-            "mode": self.mode,
         }
 
     def query_ip_intelligence(self, ip_address: str, **kwargs: Any) -> Dict[str, Any]:
@@ -1072,23 +1085,28 @@ def parse_ct_log_response(payload: Any) -> Dict[str, Any]:
         if len(payload) > CT_LOG_MAX_ROWS:
             truncated = True
 
-        for name in str(row.get("name_value", "")).split("\n"):
-            clean = name.strip().lower().rstrip(".")
-            if not clean:
-                continue
-            if clean.startswith("*."):
-                wildcards.add(clean[2:])
-            else:
-                subjects.add(clean)
+        # Guard against null: str(None) is the literal string "none", which
+        # would become a phantom subject in the overlap report.
+        name_value = row.get("name_value")
+        if isinstance(name_value, str):
+            for name in name_value.split("\n"):
+                clean = name.strip().lower().rstrip(".")
+                if not clean:
+                    continue
+                if clean.startswith("*."):
+                    wildcards.add(clean[2:])
+                else:
+                    subjects.add(clean)
 
-        issuer = str(row.get("issuer_name", "")).strip()
-        if issuer:
-            issuers.add(issuer)
+        issuer = row.get("issuer_name")
+        if isinstance(issuer, str) and issuer.strip():
+            issuers.add(issuer.strip())
 
-        not_before = str(row.get("not_before", "")).strip()
-        if not_before:
-            earliest = not_before if earliest is None else min(earliest, not_before)
-            latest = not_before if latest is None else max(latest, not_before)
+        not_before = row.get("not_before")
+        if isinstance(not_before, str) and not_before.strip():
+            value = not_before.strip()
+            earliest = value if earliest is None else min(earliest, value)
+            latest = value if latest is None else max(latest, value)
 
     return {
         "status": "OK",

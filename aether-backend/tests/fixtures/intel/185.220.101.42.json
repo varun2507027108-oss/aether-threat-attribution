@@ -2,14 +2,26 @@
   "source": "AETHER Forensic Benchmark Corpus (Curated Threat Telemetry)",
   "asn": "AS9009 M247 Europe",
   "org": "M247 Ltd Dedicated Hosting",
-  "ports": [80, 443, 8080, 9050],
+  "ports": [
+    80,
+    443,
+    8080,
+    9050
+  ],
   "geo": "Munich, Bavaria, Germany",
-  "hostnames": ["node-de-42.darknet-exit.org"],
-  "banners": ["Apache/2.4.52 (Debian) /server-status exposed"],
+  "hostnames": [
+    "node-de-42.darknet-exit.org"
+  ],
+  "banners": [
+    "Apache/2.4.52 (Debian) /server-status exposed"
+  ],
   "favicon_mmh3": -129482710,
   "jarm": "29d29d00029d29d00029d29d29d29d2f2d93e1b74a3f242d599c72e25df963",
-  "ssl_cert_fingerprint": "3f9a1c7e5b2d8406af1e93c7b04d28e6a51c9f037be24d8c1a6705e9b3f8d2c47",
-  "crt_sh_domains": ["darknet-exit.org", "node-de-42.darknet-exit.org"],
+  "ssl_cert_fingerprint": "3f9a1c7e5b2d8406af1e93c7b04d28e66e82d40b7c39e1fa6048d2b5e7c1a9f3",
+  "crt_sh_domains": [
+    "darknet-exit.org",
+    "node-de-42.darknet-exit.org"
+  ],
   "last_observed_utc": "2026-08-14T03:21:07Z",
   "corpus_notes": "Known Tor exit relay operator infrastructure. Reused Apache /server-status exposure across two unrelated services is a documented de-anonymisation vector."
 }

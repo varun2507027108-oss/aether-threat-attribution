@@ -2,13 +2,22 @@
   "source": "AETHER Forensic Benchmark Corpus (Curated Threat Telemetry)",
   "asn": "AS202425 IP Volume inc.",
   "org": "IP Volume (NL) Bulletproof Hosting",
-  "ports": [443, 8443, 9001],
+  "ports": [
+    443,
+    8443,
+    9001
+  ],
   "geo": "Amsterdam, Netherlands",
-  "hostnames": ["cdn-assets-shop-mirror.torproject-cdn-mirror.xyz"],
-  "banners": ["nginx/1.24.0", "HTTP/1.1 200 OK\r\nServer: nginx"],
+  "hostnames": [
+    "cdn-assets-shop-mirror.torproject-cdn-mirror.xyz"
+  ],
+  "banners": [
+    "nginx/1.24.0",
+    "HTTP/1.1 200 OK\r\nServer: nginx"
+  ],
   "favicon_mmh3": -1471325104,
   "jarm": "07d14d16d21d21d07c42d41d00041d24a45a31ad4f776aab480113503280b0",
-  "ssl_cert_fingerprint": "b81d4e0c927fa3650e14b7c8d2936f05ca7149be230cd86f5a3710be984c7d2f",
+  "ssl_cert_fingerprint": "b81d4e0c927fa3650e14b7c8d2936f0550f6392d8c7b41e0563af729c0e4d18b",
   "crt_sh_domains": [
     "torproject-cdn-mirror.xyz",
     "cdn-assets-shop-mirror.torproject-cdn-mirror.xyz",
