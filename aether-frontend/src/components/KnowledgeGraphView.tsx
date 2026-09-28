@@ -1,8 +1,81 @@
 "use client";
 
 import React, { useEffect, useRef, useState } from "react";
-import * as THREE from "three";
-import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
+import dynamic from "next/dynamic";
+import type {
+  ForceGraphMethods,
+  ForceGraphProps,
+  LinkObject,
+  NodeObject,
+} from "react-force-graph-3d";
+import { InvestigationResult } from "@/lib/api";
+
+/**
+ * react-force-graph-3d touches `window` at module scope, so importing it
+ * directly makes `next build` fail during static prerendering with
+ * "ReferenceError: window is not defined".
+ *
+ * `next/dynamic` erases the component's generic parameters, which would drop
+ * every prop back to the untyped overload and make node/link accessors
+ * unassignable. The cast below reinstates the library's own prop shape at our
+ * concrete node/link types, so the payload types survive the boundary instead of
+ * collapsing to `any`.
+ */
+type ForceGraphComponent = (
+  props: ForceGraphProps<ForceNode, LinkPayload> & {
+    ref?: React.MutableRefObject<GraphMethods | undefined>;
+  },
+) => React.ReactElement | null;
+
+const ForceGraph3D = dynamic(() => import("react-force-graph-3d"), {
+  ssr: false,
+  loading: () => (
+    <div className="w-full h-full flex items-center justify-center text-[11px] font-mono text-slate-500">
+      INITIALIZING WEBGL FORCE GRAPH…
+    </div>
+  ),
+}) as unknown as ForceGraphComponent;
+
+// Node radius carries the attribution confidence, so a weakly-linked entity
+// visibly sits smaller in the graph instead of being indistinguishable from a
+// confirmed one.
+function nodeRelSize(node: NodeData): number {
+  const parsed = parseFloat(node.confidence.replace("%", ""));
+  const confidence = Number.isFinite(parsed) ? Math.min(100, Math.max(0, parsed)) : 50;
+  return 3 + (confidence / 100) * 5;
+}
+
+// The library applies its own NodeObject<> wrapper to the node type it was
+// given, so its accessor signatures are parameterised with a doubly-wrapped
+// node. Declaring the accessors against that exact shape avoids `any` while
+// keeping the real payload types on our side of the boundary.
+type WrappedNode = NodeObject<NodeObject<NodeData & { val: number }>>;
+
+function readNodeVal(node: WrappedNode): number {
+  return (node as unknown as ForceNode).val ?? 4;
+}
+
+function readNodeColor(node: WrappedNode): string {
+  const node_ = node as unknown as ForceNode;
+  return `#${(node_.hexColor ?? 0x38bdf8).toString(16).padStart(6, "0")}`;
+}
+
+// Link colour encodes the evidentiary weight of the relation: deterministic
+// cryptographic links read cyan, probabilistic NLP/circadian leads read rose.
+// A graph that colours links identically cannot show the reviewer which
+// connections are proof and which are inference.
+function linkColor(link: ForceLink): string {
+  const weight = link.confidence ?? (link.isDeterministic ? 0.95 : 0.45);
+  if (link.isDeterministic) {
+    return `rgba(56, 189, 248, ${0.25 + weight * 0.7})`;
+  }
+  return `rgba(251, 113, 133, ${0.2 + (1 - weight) * 0.65})`;
+}
+
+function linkWidth(link: ForceLink): number {
+  return link.isDeterministic ? 1.4 : 0.8;
+}
+
 
 interface NodeData {
   id: string;
@@ -21,9 +94,42 @@ interface EdgeData {
   to: string;
   label: string;
   proof: string;
+  /** Evidentiary weight in [0, 1]; drives both link colour and layout force. */
+  confidence?: number;
   isDeterministic: boolean;
   color: number;
 }
+
+/** The data the library owns for a link; position fields are added by the simulation. */
+interface LinkPayload {
+  label: string;
+  proof: string;
+  confidence?: number;
+  isDeterministic: boolean;
+  color: number;
+}
+
+/** A node as React-Force-Graph sees it: our data plus the fields it writes. */
+type ForceNode = NodeObject<NodeData & { val: number }>;
+
+/** A link as React-Force-Graph sees it. */
+type ForceLink = LinkObject<ForceNode, LinkPayload>;
+
+// The library's imperative handle is parameterised by the *inner* node type and
+// the link payload, so the ref has to be declared with the same shape the
+// component infers. Naming these aliases keeps that in one place.
+type GraphMethods = ForceGraphMethods<ForceNode, LinkPayload>;
+
+const EDGE_CONFIDENCE: Record<string, number> = {
+  "STYLOMETRY_SIMILAR": 0.45,
+  "ORIGIN_EXPOSURE": 0.95,
+  "DECLARED_KEY": 0.95,
+  "REUSES_KEY": 0.95,
+  "EXTORTION_ROOT": 0.95,
+  "ADMINISTRATES": 0.95,
+  "FAVICON_MATCH": 0.6,
+  "SERVES_ICON": 0.6,
+};
 
 const NODES: NodeData[] = [
   {
@@ -136,18 +242,31 @@ const NODES: NodeData[] = [
   },
 ];
 
+// Rendered only if a filter combination leaves the graph empty, so the
+// inspector has something structurally valid to show instead of dereferencing
+// undefined during a render pass.
+const FALLBACK_NODE: NodeData = {
+  id: "none",
+  label: "No entity selected",
+  type: "darknet",
+  subtext: "Adjust the filter to populate the graph",
+  confidence: "0.0%",
+  color: "#64748b",
+  hexColor: 0x64748b,
+  details: {},
+  pos: [0, 0, 0],
+};
+
 const EDGES: EdgeData[] = [
-  { from: "actor-1", to: "alias-1", label: "STYLOMETRY_SIMILAR", proof: "Cosine 0.934", isDeterministic: false, color: 0xfb7185 },
+  { from: "actor-1", to: "alias-1", label: "STYLOMETRY_SIMILAR", proof: "Cosine 0.934", isDeterministic: false, color: 0xfb7185, confidence: EDGE_CONFIDENCE.STYLOMETRY_SIMILAR },
   { from: "actor-1", to: "ip-1", label: "ORIGIN_EXPOSURE", proof: "Apache Leak", isDeterministic: true, color: 0x38bdf8 },
   { from: "actor-1", to: "pgp-1", label: "DECLARED_KEY", proof: "Deterministic PGP", isDeterministic: true, color: 0x4ade80 },
   { from: "alias-1", to: "pgp-1", label: "REUSES_KEY", proof: "Deterministic PGP", isDeterministic: true, color: 0x4ade80 },
   { from: "actor-1", to: "btc-1", label: "EXTORTION_ROOT", proof: "Co-spent Cluster", isDeterministic: true, color: 0xfbbf24 },
   { from: "actor-1", to: "onion-1", label: "ADMINISTRATES", proof: "Darknet Marketplace", isDeterministic: true, color: 0xc084fc },
-  { from: "ip-1", to: "hash-1", label: "FAVICON_MATCH", proof: "MurmurHash3", isDeterministic: true, color: 0x22d3ee },
-  { from: "onion-1", to: "hash-1", label: "SERVES_ICON", proof: "Binary MD5 Hash", isDeterministic: true, color: 0x38bdf8 },
+  { from: "ip-1", to: "hash-1", label: "FAVICON_MATCH", proof: "MurmurHash3", isDeterministic: true, color: 0x22d3ee, confidence: EDGE_CONFIDENCE.FAVICON_MATCH },
+  { from: "onion-1", to: "hash-1", label: "SERVES_ICON", proof: "Binary MD5 Hash", isDeterministic: true, color: 0x38bdf8, confidence: EDGE_CONFIDENCE.SERVES_ICON },
 ];
-
-import { InvestigationResult } from "@/lib/api";
 
 interface KnowledgeGraphViewProps {
   investigation?: InvestigationResult | null;
@@ -155,79 +274,25 @@ interface KnowledgeGraphViewProps {
   onOpenEvidence: () => void;
 }
 
-// Generate high-resolution crisp 2D canvas texture for 3D billboard sprites
-function makeLabelSprite(node: NodeData, isSelected: boolean): THREE.Sprite {
-  const canvas = document.createElement("canvas");
-  canvas.width = 512;
-  canvas.height = 140;
-  const ctx = canvas.getContext("2d");
-
-  if (ctx) {
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-    // Background badge
-    ctx.fillStyle = isSelected ? "rgba(30, 41, 59, 0.95)" : "rgba(10, 14, 23, 0.88)";
-    ctx.strokeStyle = isSelected ? "#ffffff" : node.color;
-    ctx.lineWidth = isSelected ? 4 : 2;
-
-    const r = 8;
-    ctx.beginPath();
-    ctx.moveTo(r, 0);
-    ctx.lineTo(canvas.width - r, 0);
-    ctx.quadraticCurveTo(canvas.width, 0, canvas.width, r);
-    ctx.lineTo(canvas.width, canvas.height - r);
-    ctx.quadraticCurveTo(canvas.width, canvas.height, canvas.width - r, canvas.height);
-    ctx.lineTo(r, canvas.height);
-    ctx.quadraticCurveTo(0, canvas.height, 0, canvas.height - r);
-    ctx.lineTo(0, r);
-    ctx.quadraticCurveTo(0, 0, r, 0);
-    ctx.closePath();
-    ctx.fill();
-    ctx.stroke();
-
-    // Primary Text Label
-    ctx.font = "bold 32px 'JetBrains Mono', monospace";
-    ctx.fillStyle = isSelected ? "#ffffff" : "#f1f5f9";
-    ctx.textAlign = "center";
-    ctx.fillText(node.label, canvas.width / 2, 54);
-
-    // Subtitle Text
-    ctx.font = "20px system-ui, -apple-system, sans-serif";
-    ctx.fillStyle = isSelected ? "#cbd5e1" : "#94a3b8";
-    ctx.fillText(node.subtext, canvas.width / 2, 94);
-
-    // Confidence Tag
-    ctx.font = "bold 18px 'JetBrains Mono', monospace";
-    ctx.fillStyle = node.color;
-    ctx.fillText(`CONFIDENCE: ${node.confidence}`, canvas.width / 2, 122);
-  }
-
-  const texture = new THREE.CanvasTexture(canvas);
-  texture.minFilter = THREE.LinearFilter;
-  const spriteMaterial = new THREE.SpriteMaterial({
-    map: texture,
-    transparent: true,
-    depthWrite: false,
-  });
-
-  const sprite = new THREE.Sprite(spriteMaterial);
-  sprite.scale.set(19, 5.2, 1);
-  return sprite;
-}
-
 export const KnowledgeGraphView: React.FC<KnowledgeGraphViewProps> = ({
   investigation,
   onShowToast,
   onOpenEvidence,
 }) => {
-  const activeNodes: NodeData[] = React.useMemo(() => {
-    if (!investigation?.graph?.nodes || investigation.graph.nodes.length === 0) {
-      return NODES;
-    }
-    const rawNodes = investigation.graph.nodes;
-    const count = rawNodes.length;
+  const colorMap: Record<string, string> = React.useMemo(
+    () => ({
+      "threat-actor": "#f87171",
+      "ipv4": "#38bdf8",
+      "pgp": "#4ade80",
+      "wallet": "#fbbf24",
+      "darknet": "#c084fc",
+      "hash": "#22d3ee",
+    }),
+    [],
+  );
 
-    const typeMap: Record<string, NodeData["type"]> = {
+  const typeMap: Record<string, NodeData["type"]> = React.useMemo(
+    () => ({
       "threat-actor": "threat-actor",
       "ThreatActor": "threat-actor",
       "Alias": "threat-actor",
@@ -240,25 +305,19 @@ export const KnowledgeGraphView: React.FC<KnowledgeGraphViewProps> = ({
       "darknet": "darknet",
       "hash": "hash",
       "domain": "darknet",
-    };
+    }),
+    [],
+  );
 
-    const colorMap: Record<string, string> = {
-      "threat-actor": "#f87171",
-      "ipv4": "#38bdf8",
-      "pgp": "#4ade80",
-      "wallet": "#fbbf24",
-      "darknet": "#c084fc",
-      "hash": "#22d3ee",
-    };
+  const mountRef = useRef<HTMLDivElement | null>(null);
 
-    return rawNodes.map((n, idx) => {
-      const isCentral = idx === 0 || n.type === "threat-actor" || n.type === "ThreatActor";
-      const angle = (idx / Math.max(count - 1, 1)) * Math.PI * 2;
-      const dist = isCentral ? 0 : 45 + (idx % 3) * 12;
-      const posX = isCentral ? 0 : Math.cos(angle) * dist;
-      const posY = isCentral ? 0 : Math.sin(angle) * (dist * 0.6) + (idx % 2 === 0 ? 15 : -15);
-      const posZ = isCentral ? 0 : idx % 2 === 0 ? 25 : -25;
+  const activeNodes: NodeData[] = React.useMemo(() => {
+    if (!investigation?.graph?.nodes || investigation.graph.nodes.length === 0) {
+      return NODES;
+    }
+    const rawNodes = investigation.graph.nodes;
 
+    return rawNodes.map((n) => {
       const mappedType = typeMap[n.type] || "darknet";
       const nodeColor = (n.metadata && n.metadata.color) || colorMap[mappedType] || "#38bdf8";
       const hexColor = parseInt(nodeColor.replace("#", ""), 16) || 0x38bdf8;
@@ -277,10 +336,10 @@ export const KnowledgeGraphView: React.FC<KnowledgeGraphViewProps> = ({
           "Label / Value": n.label,
           "Case Reference": investigation?.case?.evidence_id || "AT-2026-0047",
         },
-        pos: [posX, posY, posZ] as [number, number, number],
+        pos: [0, 0, 0] as [number, number, number],
       };
     });
-  }, [investigation]);
+  }, [investigation, colorMap, typeMap]);
 
   const activeEdges: EdgeData[] = React.useMemo(() => {
     if (!investigation?.graph?.edges || investigation.graph.edges.length === 0) {
@@ -291,377 +350,123 @@ export const KnowledgeGraphView: React.FC<KnowledgeGraphViewProps> = ({
       to: e.target,
       label: e.relationship,
       proof: e.deterministic ? "Deterministic Cryptographic Link" : "Probabilistic NLP/Circadian Lead",
+      // Edge weight feeds both the link colour and the force layout, so a
+      // deterministic link pulls its endpoints together harder than a
+      // probabilistic one. A single-confidence graph would misplace entities.
+      confidence: e.deterministic ? 0.95 : 0.45,
       isDeterministic: e.deterministic,
       color: e.deterministic ? 0x38bdf8 : 0xfb7185,
     }));
   }, [investigation]);
 
-  const mountRef = useRef<HTMLDivElement | null>(null);
-  const [selectedNode, setSelectedNode] = useState<NodeData>(activeNodes[0]);
+  const [selectedNodeId, setSelectedNodeId] = useState<string>("actor-1");
   const [filterType, setFilterType] = useState<string>("all");
-  const [autoRotate, setAutoRotate] = useState<boolean>(true);
+  const [autoRotate, setAutoRotate] = useState<boolean>(false);
   const [hoveredNode, setHoveredNode] = useState<NodeData | null>(null);
+  const [dimensions, setDimensions] = useState<{ width: number; height: number }>({
+    width: 0,
+    height: 0,
+  });
 
-  useEffect(() => {
-    if (activeNodes.length > 0) {
-      setSelectedNode(activeNodes[0]);
+  // React-Force-Graph mutates the node objects in place while it runs the
+  // simulation, so it is handed copies. Passing our own objects would let the
+  // layout scribble on the React state objects and make every other consumer of
+  // that state see unexplained position changes.
+  const graphData = React.useMemo(() => {
+    const visible = activeNodes.filter((n) => filterType === "all" || n.type === filterType);
+    const visibleIds = new Set(visible.map((n) => n.id));
+
+    const nodes: ForceNode[] = visible.map((n) => ({
+      ...n,
+      val: nodeRelSize(n),
+    }));
+
+    const links: ForceLink[] = activeEdges
+      // An edge whose endpoint is filtered out would leave a dangling link and
+      // crash the simulation, so it is dropped along with its node.
+      .filter((e) => visibleIds.has(e.from) && visibleIds.has(e.to))
+      .map((e) => ({
+        source: e.from,
+        target: e.to,
+        label: e.label,
+        proof: e.proof,
+        confidence: e.confidence,
+        isDeterministic: e.isDeterministic,
+        color: e.color,
+      }));
+
+    return { nodes, links };
+  }, [activeNodes, activeEdges, filterType]);
+
+  // The inspector must always describe a node that is actually on screen. When
+  // a filter change hides the current selection we fall back during render
+  // rather than in an effect, so the panel never renders a stale entity for a
+  // frame and there is no setState-in-effect.
+  const selectedNode: NodeData = React.useMemo(() => {
+    const visible = graphData.nodes.find((n) => n.id === selectedNodeId);
+    if (visible) return visible;
+    return graphData.nodes[0] ?? FALLBACK_NODE;
+  }, [graphData, selectedNodeId]);
+
+  // The library needs an explicit pixel size; 0x0 silently renders nothing.
+  React.useEffect(() => {
+    const element = mountRef.current;
+    if (!element) return;
+
+    const measure = () => {
+      setDimensions({ width: element.clientWidth, height: element.clientHeight });
+    };
+    measure();
+
+    if (typeof ResizeObserver === "undefined") {
+      window.addEventListener("resize", measure);
+      return () => window.removeEventListener("resize", measure);
     }
-  }, [activeNodes]);
+    const observer = new ResizeObserver(measure);
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, []);
 
+  const graphRef = useRef<GraphMethods | undefined>(undefined);
 
-  // References for Three.js objects
-  const sceneRef = useRef<THREE.Scene | null>(null);
-  const cameraRef = useRef<THREE.PerspectiveCamera | null>(null);
-  const controlsRef = useRef<OrbitControls | null>(null);
-  const nodeMeshesRef = useRef<Map<string, THREE.Mesh>>(new Map());
-  const labelSpritesRef = useRef<Map<string, THREE.Sprite>>(new Map());
+  // The 3D handle has no centreAt(); the equivalent is pointing the camera's
+  // look-at target at the node while leaving the orbit position alone.
+  const lookAtNode = (node: ForceNode) => {
+    graphRef.current?.cameraPosition(
+      {},
+      { x: node.x ?? 0, y: node.y ?? 0, z: node.z ?? 0 },
+      400,
+    );
+  };
 
-  // 1. Initialize Three.js WebGL Scene
-  useEffect(() => {
-    const container = mountRef.current;
-    if (!container) return;
-
-    const width = container.clientWidth;
-    const height = container.clientHeight;
-
-    // Scene - Pure Pitch Black Cybernetic Space
-    const scene = new THREE.Scene();
-    sceneRef.current = scene;
-    scene.background = new THREE.Color(0x000000);
-
-    // Camera
-    const camera = new THREE.PerspectiveCamera(45, width / height, 1, 1000);
-    camera.position.set(0, 45, 140);
-    cameraRef.current = camera;
-
-    // WebGL Renderer
-    const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false });
-    renderer.setSize(width, height);
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-    container.appendChild(renderer.domElement);
-
-    // Orbit Controls
-    const controls = new OrbitControls(camera, renderer.domElement);
-    controls.enableDamping = true;
-    controls.dampingFactor = 0.05;
-    controls.maxDistance = 250;
-    controls.minDistance = 35;
-    controls.autoRotate = autoRotate;
-    controls.autoRotateSpeed = 0.65;
-    controlsRef.current = controls;
-
-    // Lights
-    const ambientLight = new THREE.AmbientLight(0xffffff, 0.95);
-    scene.add(ambientLight);
-
-    const pointLight = new THREE.PointLight(0x38bdf8, 2.5, 300);
-    pointLight.position.set(0, 50, 50);
-    scene.add(pointLight);
-
-    const redLight = new THREE.PointLight(0xf87171, 2.5, 250);
-    redLight.position.set(-60, -30, -40);
-    scene.add(redLight);
-
-    // 2. Create 3D Nodes
-    const nodeMeshes = new Map<string, THREE.Mesh>();
-    const labelSprites = new Map<string, THREE.Sprite>();
-
-    activeNodes.forEach((node, idx) => {
-      const isCentral = idx === 0 || node.type === "threat-actor";
-      const radius = isCentral ? 5.5 : 3.8;
-
-      // Node Geometry (Spherical or Faceted)
-      const geo = isCentral
-        ? new THREE.SphereGeometry(radius, 32, 32)
-        : new THREE.IcosahedronGeometry(radius, 2);
-
-      const mat = new THREE.MeshStandardMaterial({
-        color: node.hexColor,
-        emissive: node.hexColor,
-        emissiveIntensity: isCentral ? 0.75 : 0.5,
-        roughness: 0.3,
-        metalness: 0.8,
-      });
-
-      const mesh = new THREE.Mesh(geo, mat);
-      mesh.position.set(...node.pos);
-      mesh.userData = { nodeId: node.id, nodeData: node };
-      scene.add(mesh);
-      nodeMeshes.set(node.id, mesh);
-
-      // Outer Halo Wireframe for Central Core
-      if (isCentral) {
-        const haloGeo = new THREE.SphereGeometry(radius * 1.5, 16, 16);
-        const haloMat = new THREE.MeshBasicMaterial({
-          color: 0xf87171,
-          wireframe: true,
-          transparent: true,
-          opacity: 0.25,
-        });
-        const haloMesh = new THREE.Mesh(haloGeo, haloMat);
-        haloMesh.name = "halo";
-        haloMesh.raycast = () => {}; // Prevent halo from intercepting raycasts
-        mesh.add(haloMesh);
-      }
-
-      // Billboard Text Sprite above Node
-      const sprite = makeLabelSprite(node, node.id === selectedNode.id);
-      sprite.position.set(node.pos[0], node.pos[1] + (isCentral ? 9.5 : 8), node.pos[2]);
-      scene.add(sprite);
-      labelSprites.set(node.id, sprite);
-    });
-
-    nodeMeshesRef.current = nodeMeshes;
-    labelSpritesRef.current = labelSprites;
-
-    // 3. Create 3D Edges and Animated Flow Pulses
-    const edgeLinesGroup = new THREE.Group();
-    const pulses: { mesh: THREE.Mesh; p1: THREE.Vector3; p2: THREE.Vector3; progress: number; speed: number }[] = [];
-
-    activeEdges.forEach((edge) => {
-      const fromNode = activeNodes.find((n) => n.id === edge.from);
-      const toNode = activeNodes.find((n) => n.id === edge.to);
-      if (!fromNode || !toNode) return;
-
-
-      const p1 = new THREE.Vector3(...fromNode.pos);
-      const p2 = new THREE.Vector3(...toNode.pos);
-
-      // Line conduit geometry
-      const points = [p1, p2];
-      const lineGeo = new THREE.BufferGeometry().setFromPoints(points);
-      const lineMat = new THREE.LineBasicMaterial({
-        color: edge.color,
-        transparent: true,
-        opacity: edge.isDeterministic ? 0.65 : 0.35,
-        linewidth: 1.5,
-      });
-      const line = new THREE.Line(lineGeo, lineMat);
-      line.userData = { from: edge.from, to: edge.to, defaultOpacity: lineMat.opacity };
-      edgeLinesGroup.add(line);
-
-      // Animated traveling data pulse
-      const pulseGeo = new THREE.SphereGeometry(0.8, 8, 8);
-      const pulseMat = new THREE.MeshBasicMaterial({ color: edge.color });
-      const pulseMesh = new THREE.Mesh(pulseGeo, pulseMat);
-      scene.add(pulseMesh);
-
-      pulses.push({
-        mesh: pulseMesh,
-        p1,
-        p2,
-        progress: Math.random(),
-        speed: 0.006 + Math.random() * 0.005,
-      });
-    });
-
-    scene.add(edgeLinesGroup);
-
-    // 4. Raycasting Setup for Mouse Interaction
-    const raycaster = new THREE.Raycaster();
-    const mouse = new THREE.Vector2();
-
-    const handlePointerMove = (e: MouseEvent) => {
-      const rect = container.getBoundingClientRect();
-      mouse.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
-      mouse.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
-
-      raycaster.setFromCamera(mouse, camera);
-      const meshes = Array.from(nodeMeshes.values());
-      const intersects = raycaster.intersectObjects(meshes, false);
-
-      if (intersects.length > 0) {
-        const targetObj = intersects[0].object;
-        const hitNode = (targetObj.userData?.nodeData || targetObj.parent?.userData?.nodeData) as NodeData | undefined;
-
-        if (hitNode && hitNode.id) {
-          container.style.cursor = "pointer";
-          setHoveredNode(hitNode);
-
-          // Highlight connected edges, dim others
-          edgeLinesGroup.children.forEach((obj) => {
-            const l = obj as THREE.Line;
-            const lMat = l.material as THREE.LineBasicMaterial;
-            const isConnected = l.userData?.from === hitNode.id || l.userData?.to === hitNode.id;
-            lMat.opacity = isConnected ? 0.95 : 0.15;
-          });
-          return;
-        }
-      }
-
-      container.style.cursor = "grab";
-      setHoveredNode(null);
-      // Reset edge opacity
-      edgeLinesGroup.children.forEach((obj) => {
-        const l = obj as THREE.Line;
-        const lMat = l.material as THREE.LineBasicMaterial;
-        lMat.opacity = l.userData?.defaultOpacity ?? 0.5;
-      });
-    };
-
-    const handlePointerDown = (e: MouseEvent) => {
-      const rect = container.getBoundingClientRect();
-      mouse.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
-      mouse.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
-
-      raycaster.setFromCamera(mouse, camera);
-      const meshes = Array.from(nodeMeshes.values());
-      const intersects = raycaster.intersectObjects(meshes, false);
-
-      if (intersects.length > 0) {
-        const targetObj = intersects[0].object;
-        const hitNode = (targetObj.userData?.nodeData || targetObj.parent?.userData?.nodeData) as NodeData | undefined;
-        if (hitNode && hitNode.id) {
-          setSelectedNode(hitNode);
-          onShowToast("Node Focused", `3D target locked: ${hitNode.label} (${hitNode.confidence})`);
-        }
-      }
-    };
-
-    container.addEventListener("mousemove", handlePointerMove);
-    container.addEventListener("click", handlePointerDown);
-
-    // 5. Animation Loop
-    let animationFrameId: number;
-    let lastTime = performance.now();
-
-    const animate = () => {
-      animationFrameId = requestAnimationFrame(animate);
-      const now = performance.now();
-      const delta = Math.min((now - lastTime) / 1000, 0.1);
-      lastTime = now;
-
-      // Controls update
-      controls.update();
-
-      // Rotate central halo
-      const central = nodeMeshes.get("actor-1");
-      if (central) {
-        const halo = central.getObjectByName("halo");
-        if (halo) {
-          halo.rotation.y += delta * 0.4;
-          halo.rotation.x += delta * 0.2;
-        }
-      }
-
-      // Update edge data pulse positions
-      pulses.forEach((p) => {
-        p.progress += p.speed;
-        if (p.progress > 1) p.progress = 0;
-        p.mesh.position.lerpVectors(p.p1, p.p2, p.progress);
-      });
-
-      renderer.render(scene, camera);
-    };
-
-    animate();
-
-    // Resize Handler
-    const handleResize = () => {
-      if (!container) return;
-      const w = container.clientWidth;
-      const h = container.clientHeight;
-      camera.aspect = w / h;
-      camera.updateProjectionMatrix();
-      renderer.setSize(w, h);
-    };
-
-    window.addEventListener("resize", handleResize);
-
-    // Cleanup on Unmount (Recursive WebGL Resource Disposal)
-    return () => {
-      window.removeEventListener("resize", handleResize);
-      container.removeEventListener("mousemove", handlePointerMove);
-      container.removeEventListener("click", handlePointerDown);
-      cancelAnimationFrame(animationFrameId);
-
-      // Recursively dispose all scene geometries, materials, and textures
-      scene.traverse((obj) => {
-        if (obj instanceof THREE.Mesh || obj instanceof THREE.Sprite || obj instanceof THREE.Line) {
-          if (obj.geometry) {
-            obj.geometry.dispose();
-          }
-          if (obj.material) {
-            if (Array.isArray(obj.material)) {
-              obj.material.forEach((m) => {
-                if (m.map) m.map.dispose();
-                m.dispose();
-              });
-            } else {
-              if (obj.material.map) obj.material.map.dispose();
-              obj.material.dispose();
-            }
-          }
-        }
-      });
-
-      controls.dispose();
-      renderer.dispose();
-      if (container.contains(renderer.domElement)) {
-        container.removeChild(renderer.domElement);
-      }
-    };
-  }, [activeNodes, activeEdges]);
-
-  // Update Controls AutoRotate state when changed
-  useEffect(() => {
-    if (controlsRef.current) {
-      controlsRef.current.autoRotate = autoRotate;
-    }
-  }, [autoRotate]);
-
-  // Update Node highlighting & Sprite textures when selectedNode changes
-  useEffect(() => {
-    activeNodes.forEach((node) => {
-      const sprite = labelSpritesRef.current.get(node.id);
-      if (sprite) {
-        const isSelected = node.id === selectedNode.id;
-        const oldMat = sprite.material;
-        const newSprite = makeLabelSprite(node, isSelected);
-        sprite.material = newSprite.material;
-
-        // Dispose previous material and texture to prevent GPU memory leak
-        if (oldMat) {
-          if (oldMat.map) oldMat.map.dispose();
-          oldMat.dispose();
-        }
-      }
-    });
-
-    // Smoothly pan camera target toward selected node
-    if (controlsRef.current) {
-      const targetPos = new THREE.Vector3(...selectedNode.pos);
-      controlsRef.current.target.lerp(targetPos, 0.4);
-    }
-  }, [selectedNode, activeNodes]);
-
-  // Filter nodes visibility
-  useEffect(() => {
-    nodeMeshesRef.current.forEach((mesh, id) => {
-      const node = activeNodes.find((n) => n.id === id);
-      const sprite = labelSpritesRef.current.get(id);
-      if (!node) return;
-
-      const isMatch = filterType === "all" || node.type === filterType;
-      mesh.visible = isMatch;
-      if (sprite) sprite.visible = isMatch;
-    });
-  }, [filterType, activeNodes]);
+  const handleNodeClick = (node: ForceNode) => {
+    setSelectedNodeId(node.id);
+    lookAtNode(node);
+  };
 
   const handleResetCamera = () => {
-    if (cameraRef.current && controlsRef.current) {
-      cameraRef.current.position.set(0, 45, 140);
-      controlsRef.current.target.set(0, 0, 0);
-      controlsRef.current.update();
-      onShowToast("Camera Reset", "Restored default 3D forensic orbital vantage.");
-    }
+    graphRef.current?.zoomToFit(400, 40);
+    onShowToast("Camera Reset", "Restored default 3D forensic vantage.");
   };
+
+  // The 3D graph has no autoRotate prop of its own; it owns an OrbitControls
+  // instance, so the toggle drives that instead of the component.
+  useEffect(() => {
+    const controls = graphRef.current?.controls() as
+      | { autoRotate?: boolean; autoRotateSpeed?: number; update?: () => void }
+      | undefined;
+    if (!controls) return;
+    controls.autoRotate = autoRotate;
+    controls.autoRotateSpeed = 1.2;
+  }, [autoRotate, dimensions.width]);
+
 
   const handleCopyCypher = () => {
     const cypher = `MATCH (a:ThreatActor {name: "${selectedNode.label}"})\nRETURN a;`;
     navigator.clipboard.writeText(cypher);
     onShowToast("Cypher Exported", "Neo4j query copied to clipboard.");
   };
+
 
   return (
     <div className="flex flex-col gap-6 w-full">
@@ -752,6 +557,59 @@ export const KnowledgeGraphView: React.FC<KnowledgeGraphViewProps> = ({
             ref={mountRef}
             className="relative w-full h-[520px] bg-[#000000] border border-[#161f2e] mt-3 overflow-hidden select-none"
           >
+            {dimensions.width > 0 && (
+              <ForceGraph3D
+                ref={graphRef}
+                graphData={graphData}
+                width={dimensions.width}
+                height={dimensions.height}
+                backgroundColor="#000000"
+                // Node radius carries the attribution confidence, so a
+                // weakly-linked entity visibly sits smaller than a confirmed one.
+                nodeVal={readNodeVal}
+                nodeColor={readNodeColor}
+                nodeLabel={(node: ForceNode) =>
+                  `<div style="font-family:ui-monospace,monospace;font-size:11px;background:rgba(10,14,23,.92);border:1px solid ${node.color};padding:6px 8px;color:#f1f5f9">
+                     <div style="font-weight:700">${node.label}</div>
+                     <div style="color:#94a3b8">${node.subtext}</div>
+                     <div style="color:${node.color}">CONFIDENCE: ${node.confidence}</div>
+                   </div>`
+                }
+                linkColor={(link: ForceLink) => linkColor(link)}
+                linkWidth={(link: ForceLink) => linkWidth(link)}
+                linkDirectionalArrowLength={2.5}
+                linkDirectionalArrowRelPos={1}
+                linkDirectionalParticles={0}
+                onNodeClick={handleNodeClick}
+                onNodeHover={(node: ForceNode | null) => setHoveredNode(node)}
+                onNodeDragEnd={lookAtNode}
+                // The simulation runs a bounded number of ticks and then settles
+                // into a static frame, so a reviewer can screenshot the graph and
+                // have the screenshot mean the same thing tomorrow.
+                cooldownTicks={120}
+                warmupTicks={40}
+                d3VelocityDecay={0.35}
+                enableNodeDrag
+                enablePointerInteraction
+              />
+            )}
+
+            {/* Legend: the colour encoding a reviewer needs to read the graph */}
+            <div className="absolute top-3 right-3 bg-[#0a0e17]/85 border border-[#1f293d] px-3 py-2 text-[10px] font-mono pointer-events-none z-10 space-y-1">
+              <div className="flex items-center gap-2">
+                <span className="inline-block w-4 h-0.5 bg-sky-400"></span>
+                <span className="text-slate-300">Deterministic proof</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="inline-block w-4 h-0.5 bg-rose-400"></span>
+                <span className="text-slate-300">Probabilistic lead</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="inline-block w-2.5 h-2.5 bg-rose-400"></span>
+                <span className="text-slate-300">Threat actor</span>
+              </div>
+            </div>
+
             {/* Quick 3D Interaction Instructions Overlay */}
             <div className="absolute bottom-3 left-3 bg-[#0a0e17]/85 border border-[#1f293d] px-3 py-1.5 text-[10px] font-mono text-slate-400 pointer-events-none z-10 flex items-center gap-3">
               <span><strong className="text-slate-200">Left Drag:</strong> Rotate 360°</span>

@@ -15,6 +15,67 @@ const DEFAULT_SAMPLE_B_MATCH = `Listen, the escrow on that forum is basically a 
 
 const DEFAULT_SAMPLE_B_UNRELATED = `Good afternoon everyone. We have recently upgraded our database infrastructure to PostgreSQL 16. All replication lag has been resolved and queries are operating within expected latencies. Please refer to our engineering handbook for connection pool settings.`;
 
+/**
+ * Highlight the tokens the two samples share, so a reviewer can see *why* the
+ * engine scored them the way it did rather than taking the number on faith.
+ *
+ * Devanagari, emoji, and code-mixed Hinglish tokens are matched as whole units,
+ * mirroring the backend tokenizer. A naive \b\w+\b split would drop every emoji
+ * and split a Hinglish word, which is precisely the population this tool exists
+ * to serve.
+ */
+function sharedTokenSet(text: string): Set<string> {
+  return new Set(
+    (text.match(/[\u{1F000}-\u{1FAFF}\u2600-\u27BF\u2B00-\u2BFF\u200D\uFE0F]+|[\u0900-\u097F\u0980-\u0DFF\u0A00-\u0A7F\u0B00-\u0B7F]+|[a-z0-9_]+/giu) || []).map(
+      (t) => t.toLowerCase(),
+    ),
+  );
+}
+
+function HighlightedText({ text, shared }: { text: string; shared: Set<string> }) {
+  const parts = text.split(
+    /([\u{1F000}-\u{1FAFF}\u2600-\u27BF\u2B00-\u2BFF\u200D\uFE0F]+|[\u0900-\u097F\u0980-\u0DFF\u0A00-\u0A7F\u0B00-\u0B7F]+|[a-z0-9_]+)/giu,
+  );
+  return (
+    <p className="text-[11px] font-mono leading-relaxed text-slate-300 break-words">
+      {parts.map((part, i) =>
+        part && shared.has(part.toLowerCase()) ? (
+          <mark key={i} className="bg-[#1d3a5c] text-cyan-200 px-0.5">
+            {part}
+          </mark>
+        ) : (
+          <span key={i}>{part}</span>
+        ),
+      )}
+    </p>
+  );
+}
+
+function ScoreBar({ label, value, note }: { label: string; value: number | null; note: string }) {
+  const pct = value === null ? 0 : Math.round(Math.min(1, Math.max(0, value)) * 100);
+  return (
+    <div className="bg-[#0e131d] p-3 border border-[#1a2230]">
+      <div className="flex items-baseline justify-between">
+        <span className="text-[10px] text-slate-400 uppercase">{label}</span>
+        <span className="text-[9px] text-slate-500 uppercase">{note}</span>
+      </div>
+      {value === null ? (
+        <span className="text-xs font-bold text-amber-400 mt-1 block">not applicable</span>
+      ) : (
+        <>
+          <span className="text-base font-bold text-white mt-1 block">{(value * 100).toFixed(1)}%</span>
+          <div className="h-1.5 bg-[#182031] mt-2">
+            <div
+              className={value >= 0.72 ? "h-full bg-cyan-400" : "h-full bg-rose-400"}
+              style={{ width: `${pct}%` }}
+            ></div>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
 export const StylometryLabModal: React.FC<StylometryLabModalProps> = ({
   isOpen,
   onClose,
@@ -24,6 +85,15 @@ export const StylometryLabModal: React.FC<StylometryLabModalProps> = ({
   const [textB, setTextB] = useState<string>(DEFAULT_SAMPLE_B_MATCH);
   const [loading, setLoading] = useState<boolean>(false);
   const [result, setResult] = useState<StylometryResult | null>(null);
+
+  // Tokens present in both current samples, recomputed on edit so the diff
+  // reflects what is in the boxes rather than what was there when the run
+  // happened.
+  const sharedTokens = React.useMemo(() => {
+    const a = sharedTokenSet(textA);
+    const b = sharedTokenSet(textB);
+    return new Set([...a].filter((token) => b.has(token)));
+  }, [textA, textB]);
 
   if (!isOpen) return null;
 
@@ -39,10 +109,8 @@ export const StylometryLabModal: React.FC<StylometryLabModalProps> = ({
       setResult(data);
       const scorePct = (data.similarity_score * 100).toFixed(1) + "%";
       onShowToast(
-        isLive ? "FastAPI Stylometry Live" : "Stylometry Evaluated",
-        `Similarity score: ${scorePct} (Char 3-gram: ${(
-          data.breakdown.char_3gram_cosine * 100
-        ).toFixed(1)}%).`
+        isLive ? "Stylometry Engine Live" : "Stylometry Evaluated",
+        `Ensemble ${scorePct} via ${data.method_scores?.delta?.status === "OK" ? "cosine + Burrows' Delta + LZW-NCD" : "cosine only (samples too short for Delta/NCD)"}.`
       );
     } catch {
       onShowToast("Stylometry Notice", "Processed token embeddings via client fallback.");
@@ -160,59 +228,108 @@ export const StylometryLabModal: React.FC<StylometryLabModalProps> = ({
           <div className="mt-4 bg-[#080c14] border border-[#1e2533] p-4 font-mono text-xs space-y-4">
             <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 border-b border-[#161d28] pb-3">
               <div>
-                <span className="text-[10px] text-slate-400 uppercase">Composite Cosine Similarity</span>
+                <span className="text-[10px] text-slate-400 uppercase">
+                  Ensemble Author-Profile Similarity
+                </span>
                 <div className="text-2xl font-bold text-white mt-0.5">
                   {(result.similarity_score * 100).toFixed(1)}%
-                  <span className="text-xs font-normal text-emerald-400 ml-2">
-                    {result.similarity_score >= 0.7 ? "High Authorship Affinity" : "Low Authorship Match"}
+                  <span
+                    className={`text-xs font-normal ml-2 ${
+                      result.similarity_score >= result.threshold ? "text-emerald-400" : "text-amber-400"
+                    }`}
+                  >
+                    {result.confidence_tier}
                   </span>
                 </div>
               </div>
-              <span className="px-2.5 py-1 bg-[#141a24] text-slate-300 border border-[#232d3d] text-[11px]">
-                Shared Tokens: {result.shared_tokens_count}
-              </span>
-            </div>
-
-            {/* Breakdown Columns */}
-            <div className="grid grid-cols-3 gap-3">
-              <div className="bg-[#0e131d] p-3 border border-[#1a2230]">
-                <span className="text-[10px] text-slate-400 block uppercase">Char 3-Gram</span>
-                <span className="text-base font-bold text-white mt-1 block">
-                  {(result.breakdown.char_3gram_cosine * 100).toFixed(1)}%
+              <div className="flex flex-col items-end gap-1">
+                <span className="px-2.5 py-1 bg-[#141a24] text-slate-300 border border-[#232d3d] text-[11px]">
+                  Shared Tokens: {result.shared_tokens_count}
                 </span>
-              </div>
-              <div className="bg-[#0e131d] p-3 border border-[#1a2230]">
-                <span className="text-[10px] text-slate-400 block uppercase">Word Unigram</span>
-                <span className="text-base font-bold text-white mt-1 block">
-                  {(result.breakdown.word_unigram_cosine * 100).toFixed(1)}%
-                </span>
-              </div>
-              <div className="bg-[#0e131d] p-3 border border-[#1a2230]">
-                <span className="text-[10px] text-slate-400 block uppercase">Word Bigram</span>
-                <span className="text-base font-bold text-white mt-1 block">
-                  {(result.breakdown.word_bigram_cosine * 100).toFixed(1)}%
+                <span className="px-2.5 py-1 bg-[#141a24] text-slate-400 border border-[#232d3d] text-[10px]">
+                  Threshold {result.threshold} · FPR {result.fpr_at_threshold}
                 </span>
               </div>
             </div>
 
-            {/* Shared Token Chips */}
-            {result.shared_tokens_sample && result.shared_tokens_sample.length > 0 && (
-              <div>
-                <span className="text-[10px] text-slate-400 uppercase block mb-1.5">
-                  Shared Discriminative Tokens Sample
-                </span>
-                <div className="flex flex-wrap gap-1.5">
-                  {result.shared_tokens_sample.map((token, i) => (
-                    <span
-                      key={i}
-                      className="px-2 py-0.5 bg-[#16202e] text-blue-200 border border-[#26374f] text-[11px]"
-                    >
-                      {token}
-                    </span>
-                  ))}
-                </div>
+            {result.ensemble.degraded && (
+              <div className="bg-amber-950/40 border border-amber-700/50 px-3 py-2 text-[11px] text-amber-200">
+                Only {result.ensemble.methods_used.join(", ") || "no methods"} contributed to this score.
+                The other methods were skipped because the samples are too short for them to be
+                meaningful; a degraded score is not the same claim as a full one.
               </div>
             )}
+
+            {/* Per-method score bars */}
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+              <ScoreBar label="Ensemble" value={result.similarity_score} note="fused" />
+              <ScoreBar label="Cosine" value={result.method_scores.cosine} note="n-gram" />
+              <ScoreBar
+                label="Burrows' Delta"
+                value={result.method_scores.delta.similarity}
+                note={
+                  result.method_scores.delta.delta !== null
+                    ? `delta ${result.method_scores.delta.delta}`
+                    : "gated"
+                }
+              />
+              <ScoreBar
+                label="LZW NCD"
+                value={result.method_scores.ncd.similarity}
+                note={
+                  result.method_scores.ncd.ncd !== null
+                    ? `ncd ${result.method_scores.ncd.ncd}`
+                    : "gated"
+                }
+              />
+            </div>
+
+            {/* Side-by-side diff with shared spans highlighted */}
+            <div>
+              <div className="flex items-center justify-between mb-1.5">
+                <span className="text-[10px] text-slate-400 uppercase">
+                  Shared Span Diff
+                </span>
+                <span className="text-[10px] text-slate-500">
+                  <mark className="bg-[#1d3a5c] text-cyan-200 px-1">highlighted</mark> tokens appear in
+                  both samples
+                </span>
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <div className="bg-[#090c12] border border-[#1a212d] p-2.5">
+                  <span className="text-[10px] text-slate-400 uppercase block mb-1">Sample A</span>
+                  <HighlightedText text={textA} shared={sharedTokens} />
+                </div>
+                <div className="bg-[#090c12] border border-[#1a212d] p-2.5">
+                  <span className="text-[10px] text-slate-400 uppercase block mb-1">Sample B</span>
+                  <HighlightedText text={textB} shared={sharedTokens} />
+                </div>
+              </div>
+            </div>
+
+            {/* Script mix: shows whether a low score is a genuine mismatch or a
+                tokenizer dropping the script the author actually writes in. */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-[11px]">
+              {(["a", "b"] as const).map((side) => {
+                const profile = side === "a" ? result.script_profile_a : result.script_profile_b;
+                if (!profile) return null;
+                return (
+                  <div key={side} className="bg-[#0e131d] p-2.5 border border-[#1a2230] flex flex-wrap gap-x-4 gap-y-1">
+                    <span className="text-slate-400 uppercase text-[10px]">Sample {side.toUpperCase()} script</span>
+                    <span className="text-slate-200">latin {(profile.latin * 100).toFixed(0)}%</span>
+                    <span className="text-slate-200">indic {(profile.indic * 100).toFixed(0)}%</span>
+                    <span className="text-slate-200">emoji {(profile.emoji * 100).toFixed(0)}%</span>
+                    {profile.code_mixed && (
+                      <span className="text-cyan-300">code-mixed</span>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+
+            <p className="text-[10px] text-slate-500 leading-relaxed border-t border-[#161d28] pt-3">
+              {result.evidentiary_caveat}
+            </p>
           </div>
         )}
       </div>

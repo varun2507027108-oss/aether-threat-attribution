@@ -1,7 +1,7 @@
 "use client";
 
-import React, { useState } from "react";
-import { CaseListItem } from "@/lib/api";
+import React, { useEffect, useState } from "react";
+import { CaseListItem, confirmExport, fetchWhoAmI, WhoAmIResult } from "@/lib/api";
 
 interface HeaderProps {
   apiOnline: boolean;
@@ -28,6 +28,39 @@ export const Header: React.FC<HeaderProps> = ({
 }) => {
   const [searchQuery, setSearchQuery] = useState("");
   const [caseMenuOpen, setCaseMenuOpen] = useState(false);
+  const [identity, setIdentity] = useState<WhoAmIResult | null>(null);
+  const [confirming, setConfirming] = useState(false);
+
+  // The role badge reflects the key actually in play. Resolving to null on
+  // failure is deliberate: showing "investigator" because the lookup failed
+  // would be exactly the wrong answer to display on a legal workbench.
+  useEffect(() => {
+    let cancelled = false;
+    fetchWhoAmI().then((result) => {
+      if (!cancelled) setIdentity(result);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [apiOnline]);
+
+  const handleAffirmExport = async () => {
+    if (!activeEvidenceId) return;
+    setConfirming(true);
+    const result = await confirmExport(activeEvidenceId);
+    setConfirming(false);
+
+    if (result.ok) {
+      onShowToast(
+        "Export Affirmed",
+        `Dossier ${activeEvidenceId} released by ${result.data.operator} and sealed at custody seq ${result.data.seq}.`,
+      );
+    } else if (result.status === 403) {
+      onShowToast("Not Permitted", result.detail);
+    } else {
+      onShowToast("Confirmation Failed", result.detail);
+    }
+  };
 
   const handleSearchSubmit = (e?: React.FormEvent) => {
     if (e) e.preventDefault();
@@ -217,6 +250,47 @@ export const Header: React.FC<HeaderProps> = ({
         >
           <i className="fa-solid fa-shield-halved text-sm"></i>
         </a>
+
+        <button
+          type="button"
+          onClick={handleAffirmExport}
+          disabled={confirming || !identity?.can_confirm_export}
+          className={`h-10 px-3 border flex items-center gap-2 text-[11px] font-mono font-bold transition shrink-0 ${
+            identity?.can_confirm_export
+              ? "bg-[#16253b] hover:bg-[#1f3b57] text-cyan-300 border-[#2d466b]"
+              : "bg-[#0d1017] text-slate-600 border-[#1e2533] cursor-not-allowed"
+          }`}
+          title={
+            identity?.can_confirm_export
+              ? "Affirm release of this dossier (human-in-the-loop export gate)"
+              : "Only an investigator may affirm an export"
+          }
+        >
+          {confirming ? (
+            <span className="inline-block w-3 h-3 border border-cyan-400 border-t-transparent animate-spin"></span>
+          ) : (
+            <i className="fa-solid fa-file-signature text-xs"></i>
+          )}
+          <span className="hidden xl:inline">AFFIRM EXPORT</span>
+        </button>
+
+        {identity && (
+          <span
+            className={`h-10 px-3 border flex items-center gap-2 text-[11px] font-mono font-bold shrink-0 ${
+              identity.role === "investigator"
+                ? "bg-[#14261e] text-emerald-300 border-[#1f4433]"
+                : "bg-[#2a1f14] text-amber-300 border-[#4a3520]"
+            }`}
+            title={`${identity.operator} · key ${identity.key_id} · ${
+              identity.can_write ? "read/write" : "read-only"
+            }`}
+          >
+            <i
+              className={`fa-solid ${identity.can_write ? "fa-user-shield" : "fa-user-lock"} text-xs`}
+            ></i>
+            <span className="uppercase">{identity.role}</span>
+          </span>
+        )}
 
         <button
           type="button"

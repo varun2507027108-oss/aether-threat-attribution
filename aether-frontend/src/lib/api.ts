@@ -34,13 +34,148 @@ export function getAuthHeaders(): Record<string, string> {
   };
 }
 
+/** Identity and capabilities of the key currently in use (Phase 10). */
+export interface WhoAmIResult {
+  operator: string;
+  role: "investigator" | "auditor" | string;
+  authenticated: boolean;
+  method: string;
+  key_id: string;
+  can_write: boolean;
+  can_export: boolean;
+  can_confirm_export: boolean;
+}
+
+/** State of the human-in-the-loop export gate for a dossier. */
+export interface ExportGateResult {
+  cleared: boolean;
+  dossier_hash: string;
+  confirmed_at: string | null;
+  confirmed_by: string | null;
+  confirmed_at_seq: number | null;
+}
+
+/**
+ * Fetch the current identity and capabilities.
+ *
+ * Resolves to null rather than throwing: an unreachable or unauthorized backend
+ * must not break the shell, it just means the role badge is hidden and the
+ * write controls stay disabled rather than being offered and then refused.
+ */
+export async function fetchWhoAmI(): Promise<WhoAmIResult | null> {
+  try {
+    const res = await fetch(`${API_BASE}/api/auth/whoami`, { headers: getAuthHeaders() });
+    if (!res.ok) return null;
+    return (await res.json()) as WhoAmIResult;
+  } catch {
+    return null;
+  }
+}
+
+/** Read the export gate state without satisfying it. */
+export async function fetchExportGate(evidenceId: string): Promise<ExportGateResult | null> {
+  try {
+    const res = await fetch(`${API_BASE}/api/cases/${evidenceId}/export/gate`, {
+      headers: getAuthHeaders(),
+    });
+    if (!res.ok) return null;
+    return (await res.json()) as ExportGateResult;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Affirm release of the current dossier state.
+ *
+ * Returns the backend's error body on 403/409 rather than a bare failure, so
+ * the UI can tell "you may not do this" apart from "the dossier changed since
+ * you looked at it".
+ */
+export async function confirmExport(
+  evidenceId: string,
+): Promise<{ ok: true; data: { dossier_hash: string; seq: number; entry_hash: string; operator: string } } | { ok: false; status: number; detail: string }> {
+  try {
+    const res = await fetch(`${API_BASE}/api/cases/${evidenceId}/confirm-export`, {
+      method: "POST",
+      headers: getAuthHeaders(),
+    });
+    if (res.ok) {
+      return { ok: true, data: await res.json() };
+    }
+    let detail = `Export confirmation failed (HTTP ${res.status}).`;
+    try {
+      const body = await res.json();
+      if (body?.detail) {
+        detail = typeof body.detail === "string" ? body.detail : body.detail.message ?? detail;
+      }
+    } catch {
+      // Non-JSON error body; keep the generic message.
+    }
+    return { ok: false, status: res.status, detail };
+  } catch (e) {
+    return { ok: false, status: 0, detail: e instanceof Error ? e.message : "Network error" };
+  }
+}
+
 export interface ApiStatus {
   online: boolean;
   service?: string;
 }
 
+/** One attribution indicator in the explainability payload (Phase 6). */
+export interface ScoringContribution {
+  indicator: string;
+  category: string;
+  raw_value: string | number | null;
+  stance: "supports" | "contradicts" | "neutral";
+  likelihood_ratio: number;
+  log_likelihood_ratio: number;
+  detail: string;
+  share_pct: number;
+  direction: "up" | "down" | "flat";
+}
+
+export interface StylometryMethodScores {
+  cosine: number;
+  cosine_components: {
+    char_3gram_cosine: number;
+    word_unigram_cosine: number;
+    word_bigram_cosine: number;
+  };
+  delta: {
+    delta: number | null;
+    similarity: number | null;
+    status: string;
+    vocabulary_size?: number;
+    reference_documents?: number;
+    reason?: string;
+  };
+  ncd: {
+    ncd: number | null;
+    similarity: number | null;
+    status: string;
+    raw_ncd?: number;
+  };
+}
+
 export interface StylometryResult {
   similarity_score: number;
+  engine: string;
+  threshold: number;
+  fpr_at_threshold: number;
+  confidence_tier: string;
+  legacy_cosine_composite: number;
+  ensemble: {
+    score: number;
+    methods_used: string[];
+    weights_used: Record<string, number>;
+    degraded: boolean;
+  };
+  method_scores: StylometryMethodScores;
+  script_profile_a: { tokens: number; latin: number; indic: number; emoji: number; code_mixed: boolean };
+  script_profile_b: { tokens: number; latin: number; indic: number; emoji: number; code_mixed: boolean };
+  evidentiary_caveat: string;
   breakdown: {
     char_3gram_cosine: number;
     word_unigram_cosine: number;
@@ -234,10 +369,45 @@ export async function runStylometryAnalysis(
     console.warn("Stylometry API unavailable, using client fallback:", err);
   }
 
-  // Client fallback
+  // Client fallback. Only reachable when the API is unreachable, and labelled as
+  // such in the response so a degraded score is never mistaken for a real one.
   return {
     data: {
       similarity_score: 0.934,
+      engine: "client-fallback (API unreachable)",
+      threshold: 0.39,
+      fpr_at_threshold: 0,
+      confidence_tier: "INDICATIVE ONLY - backend unreachable",
+      legacy_cosine_composite: 0.934,
+      ensemble: {
+        score: 0.934,
+        methods_used: ["cosine"],
+        weights_used: { cosine: 1 },
+        degraded: true,
+      },
+      method_scores: {
+        cosine: 0.934,
+        cosine_components: {
+          char_3gram_cosine: 0.942,
+          word_unigram_cosine: 0.925,
+          word_bigram_cosine: 0.918,
+        },
+        delta: {
+          delta: null,
+          similarity: null,
+          status: "unavailable",
+          reason: "backend unreachable; no calibration available",
+        },
+        ncd: {
+          ncd: null,
+          similarity: null,
+          status: "unavailable",
+        },
+      },
+      script_profile_a: { tokens: 0, latin: 1, indic: 0, emoji: 0, code_mixed: false },
+      script_profile_b: { tokens: 0, latin: 1, indic: 0, emoji: 0, code_mixed: false },
+      evidentiary_caveat:
+        "Backend unreachable: this figure was computed in the browser and has not been through the calibrated ensemble. Treat it as indicative only.",
       breakdown: {
         char_3gram_cosine: 0.942,
         word_unigram_cosine: 0.925,
@@ -957,6 +1127,26 @@ function buildFallbackInvestigation(req: InvestigationRequest): InvestigationRes
     },
     stylometry: {
       similarity_score: 0.934,
+      engine: "client-fallback (API unreachable)",
+      threshold: 0.39,
+      fpr_at_threshold: 0,
+      confidence_tier: "INDICATIVE ONLY - backend unreachable",
+      legacy_cosine_composite: 0.934,
+      ensemble: { score: 0.934, methods_used: ["cosine"], weights_used: { cosine: 1 }, degraded: true },
+      method_scores: {
+        cosine: 0.934,
+        cosine_components: {
+          char_3gram_cosine: 0.942,
+          word_unigram_cosine: 0.925,
+          word_bigram_cosine: 0.918,
+        },
+        delta: { delta: null, similarity: null, status: "unavailable" },
+        ncd: { ncd: null, similarity: null, status: "unavailable" },
+      },
+      script_profile_a: { tokens: 0, latin: 1, indic: 0, emoji: 0, code_mixed: false },
+      script_profile_b: { tokens: 0, latin: 1, indic: 0, emoji: 0, code_mixed: false },
+      evidentiary_caveat:
+        "Backend unreachable: indicative only, not a calibrated attribution result.",
       breakdown: { char_3gram_cosine: 0.942, word_unigram_cosine: 0.925, word_bigram_cosine: 0.918 },
       shared_tokens_count: 24,
       shared_tokens_sample: ["escrow", "pgp", "payment", "onion", "bitcoin"],
