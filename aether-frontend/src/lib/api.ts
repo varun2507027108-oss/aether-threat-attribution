@@ -225,7 +225,7 @@ export interface EvidenceRecord {
   confidence: number;
   provenance: "LIVE_SOURCE" | "DEMO_DATA" | "SOURCE_UNAVAILABLE" | "STATIC_OSINT";
   source_reference: string;
-  metadata_json: Record<string, any>;
+  metadata_json: Record<string, unknown>;
   created_at?: string;
 }
 
@@ -286,7 +286,7 @@ export interface InvestigationResult {
   attribution: {
     confidence_score: number;
     confidence_tier: string;
-    breakdown: Record<string, any>;
+    breakdown: Record<string, unknown>;
     judicial_admissibility: string;
     evidentiary_caveat: string;
   };
@@ -298,7 +298,7 @@ export interface InvestigationResult {
       id: string;
       label: string;
       type: string;
-      metadata: Record<string, any>;
+      metadata: Record<string, unknown>;
     }>;
     edges: Array<{
       source: string;
@@ -863,8 +863,8 @@ export async function fetchJobSnapshot(
 
 export function subscribeJobEvents(
   jobId: string,
-  onEvent: (event: { type: string; data: any }) => void,
-  onError?: (err: any) => void
+  onEvent: (event: { type: string; data: unknown }) => void,
+  onError?: (err: unknown) => void
 ): () => void {
   let isClosed = false;
   let eventSource: EventSource | null = null;

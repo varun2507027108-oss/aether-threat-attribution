@@ -99,10 +99,17 @@ export default function Home() {
     }, 4500);
   };
 
+  /*
+   * The search field accepts an onion address, a PGP fingerprint, or a wallet.
+   * No endpoint takes one of those and returns a case, so this used to answer
+   * with a toast claiming it was "Probing Shodan and Tor SOCKS5" -- narrating
+   * collection that never happened. It now says plainly that the lookup is not
+   * connected and points at the action that is.
+   */
   const handleSearch = (query: string) => {
     showToast(
-      "AETHER Engine Active",
-      `Scanning target: ${query.substring(0, 28)}... Probing Shodan and Tor SOCKS5.`
+      "Target search is not connected",
+      `No endpoint resolves "${query.substring(0, 28)}" to a case. Start a new investigation to submit a target and run the pipeline.`
     );
   };
 
@@ -114,23 +121,24 @@ export default function Home() {
     }
   };
 
-  // 2. Icon 3: Scroll to / focus Diurnal UTC Circadian Engine
+  const handleSelectTabGraph = () => handleSelectTab("graph");
+
+  // 3. Icon 3: bring the diurnal chart into view and mark it current.
+  // The old handler also raised a toast naming an endpoint
+  // (/api/analysis/diurnal) that this action never called, which made a
+  // scroll gesture look like a computation.
   const handleScrollDiurnal = () => {
     setActiveTab("circadian");
     if (activeView !== "overview") {
       setActiveView("overview");
     }
-    showToast(
-      "Circadian Engine Focused",
-      "UTC diurnal distribution model active (/api/analysis/diurnal)."
-    );
     setTimeout(() => {
       const elem = document.getElementById("diurnal-section");
       if (elem) {
         elem.scrollIntoView({ behavior: "smooth", block: "center" });
-        elem.classList.add("ring-2", "ring-slate-400");
+        elem.classList.add("ring-2", "ring-[var(--color-info)]");
         setTimeout(() => {
-          elem.classList.remove("ring-2", "ring-slate-400");
+          elem.classList.remove("ring-2", "ring-[var(--color-info)]");
         }, 2000);
       }
     }, 150);
@@ -154,7 +162,17 @@ export default function Home() {
     setConfigOpen(true);
   };
 
-  // 6. Icon 8: Call GET /api/custody/verify and show SHA-256 validity toast
+  /*
+   * Chain-of-custody integrity.
+   *
+   * This previously reported "Custody Seal Valid" from the catch block, so a
+   * backend that was down, a 500, or a malformed response all produced a green
+   * integrity verdict on a custody seal. On a workbench whose output is filed
+   * with a court, an unverifiable chain is not a passing chain -- it is an
+   * unknown one, and it now says so. The same reasoning applies to the
+   * node-less case: the browser bundle has no custody data, so it reports
+   * "not checked" rather than inventing a genesis verification.
+   */
   const handleVerifyShield = async () => {
     setActiveTab("shield");
     const targetId = currentInvestigation?.case?.evidence_id || "AT-2026-0047";
@@ -162,28 +180,33 @@ export default function Home() {
       const { data, isLive } = await verifyCustodyLedger(targetId);
       if (data.valid) {
         showToast(
-          isLive ? "Custody Seal Valid (SHA-256)" : "Cryptographic Chain Intact",
-          `Tamper-evident chain verified for ${targetId}. ${data.entry_count} custody blocks intact. Seal: ${data.seal.substring(
-            0,
-            16
-          )}...`
+          isLive ? "Custody chain verified" : "Verification unavailable",
+          isLive
+            ? `Hash chain intact for ${targetId}. ${data.entry_count} custody blocks verified.`
+            : `No verifier reachable, so ${targetId} was not checked. Use the offline verifier to confirm the ledger yourself.`
         );
       } else {
         showToast(
-          "Integrity Alert: Chain Broken",
-          `Tamper detected at block sequence #${data.broken_at_seq}! Hashes mismatch.`
+          "Integrity alert: chain broken",
+          `Tamper detected at custody block #${data.broken_at_seq}. Hashes do not match. Do not rely on this case until the break is explained.`
         );
       }
     } catch {
       showToast(
-        "Custody Seal Valid",
-        "Tamper-evident chain verified against local cryptographic genesis."
+        "Chain not verified",
+        `The verifier could not be reached, so ${targetId} is unverified. An unreachable verifier is not a passing verifier — open /verify.html and check the exported ledger offline.`
       );
     }
   };
 
   return (
-    <div className="w-full max-w-[1520px] flex flex-col md:flex-row gap-6 items-stretch">
+    /*
+     * min-w-0 on both the shell and the main column. A flex item defaults to
+     * min-width:auto, which refuses to shrink below its content's min-content
+     * width -- so one long onion address or hash was enough to give the whole
+     * page a horizontal scroll on a phone.
+     */
+    <div className="w-full max-w-[1520px] flex flex-col md:flex-row gap-4 md:gap-6 items-stretch min-w-0">
       {/* LEFT SHARP DOCK */}
       <Sidebar
         activeTab={activeTab}
@@ -197,7 +220,7 @@ export default function Home() {
       />
 
       {/* RIGHT MAIN CONTENT WORKSPACE */}
-      <main className="flex-1 flex flex-col gap-6">
+      <main className="flex-1 flex flex-col gap-4 md:gap-6 min-w-0">
         {/* TOP HEADER */}
         <Header
           apiOnline={apiOnline}
@@ -218,7 +241,8 @@ export default function Home() {
             onOpenNewInvestigation={() => setNewInvestigationOpen(true)}
             onOpenDossier={handleOpenDossier}
             onOpenEvidence={() => setEvidenceOpen(true)}
-            onShowToast={showToast}
+            onOpenGraph={handleSelectTabGraph}
+            onOpenStylometry={handleOpenStylometry}
           />
         )}
 

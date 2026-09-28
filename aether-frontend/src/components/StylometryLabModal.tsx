@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState } from "react";
+import { Modal } from "@/components/Modal";
 import { runStylometryAnalysis, StylometryResult } from "@/lib/api";
 
 interface StylometryLabModalProps {
@@ -37,10 +38,10 @@ function HighlightedText({ text, shared }: { text: string; shared: Set<string> }
     /([\u{1F000}-\u{1FAFF}\u2600-\u27BF\u2B00-\u2BFF\u200D\uFE0F]+|[\u0900-\u097F\u0980-\u0DFF\u0A00-\u0A7F\u0B00-\u0B7F]+|[a-z0-9_]+)/giu,
   );
   return (
-    <p className="text-[11px] font-mono leading-relaxed text-slate-300 break-words">
+    <p className="text-[11px] font-mono leading-relaxed text-ink break-words">
       {parts.map((part, i) =>
         part && shared.has(part.toLowerCase()) ? (
-          <mark key={i} className="bg-[#1d3a5c] text-cyan-200 px-0.5">
+          <mark key={i} className="bg-info-hover text-info-ink px-0.5">
             {part}
           </mark>
         ) : (
@@ -54,19 +55,19 @@ function HighlightedText({ text, shared }: { text: string; shared: Set<string> }
 function ScoreBar({ label, value, note }: { label: string; value: number | null; note: string }) {
   const pct = value === null ? 0 : Math.round(Math.min(1, Math.max(0, value)) * 100);
   return (
-    <div className="bg-[#0e131d] p-3 border border-[#1a2230]">
+    <div className="bg-surface p-3 border border-line">
       <div className="flex items-baseline justify-between">
-        <span className="text-[10px] text-slate-400 uppercase">{label}</span>
-        <span className="text-[9px] text-slate-500 uppercase">{note}</span>
+        <span className="text-[10px] text-ink-muted uppercase">{label}</span>
+        <span className="text-[9px] text-ink-faint uppercase">{note}</span>
       </div>
       {value === null ? (
-        <span className="text-xs font-bold text-amber-400 mt-1 block">not applicable</span>
+        <span className="text-xs font-bold text-warn-ink mt-1 block">not applicable</span>
       ) : (
         <>
           <span className="text-base font-bold text-white mt-1 block">{(value * 100).toFixed(1)}%</span>
-          <div className="h-1.5 bg-[#182031] mt-2">
+          <div className="h-1.5 bg-raised mt-2">
             <div
-              className={value >= 0.72 ? "h-full bg-cyan-400" : "h-full bg-rose-400"}
+              className={value >= 0.72 ? "h-full bg-info" : "h-full bg-rose-400"}
               style={{ width: `${pct}%` }}
             ></div>
           </div>
@@ -94,8 +95,6 @@ export const StylometryLabModal: React.FC<StylometryLabModalProps> = ({
     const b = sharedTokenSet(textB);
     return new Set([...a].filter((token) => b.has(token)));
   }, [textA, textB]);
-
-  if (!isOpen) return null;
 
   const handleRun = async () => {
     if (!textA.trim() || !textB.trim()) {
@@ -132,31 +131,35 @@ export const StylometryLabModal: React.FC<StylometryLabModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 bg-black/85 flex items-center justify-center z-50 p-4">
-      <div className="bg-[#0d1017] p-6 max-w-3xl w-full border border-[#273447] max-h-[92vh] overflow-y-auto">
+    <Modal
+      isOpen={isOpen}
+      onClose={onClose}
+      title="Stylometry lab"
+      size="lg"
+    >
         {/* Header */}
-        <div className="flex justify-between items-center border-b border-[#1e2533] pb-4">
+        <div className="flex justify-between items-center border-b border-line pb-4">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 bg-[#1e2736] text-white flex items-center justify-center text-base border border-[#303d52]">
+            <div className="w-10 h-10 bg-active text-white flex items-center justify-center text-base border border-line-active">
               <i className="fa-solid fa-fingerprint"></i>
             </div>
             <div>
               <div className="flex items-center gap-2">
-                <span className="text-[10px] font-mono font-bold px-1.5 py-0.5 bg-[#141a24] text-slate-300 border border-[#263245]">
+                <span className="text-[10px] font-mono font-bold px-1.5 py-0.5 bg-info-surface text-ink border border-line-strong">
                   AI LAB
                 </span>
                 <h3 className="text-base font-bold text-white">
                   Stylometry NLP Comparison Engine
                 </h3>
               </div>
-              <p className="text-xs text-slate-400 font-mono mt-0.5">
+              <p className="text-xs text-ink-muted font-mono mt-0.5">
                 Character 3-gram &amp; word n-gram cosine similarity (POST /api/analysis/stylometry)
               </p>
             </div>
           </div>
           <button
             onClick={onClose}
-            className="w-8 h-8 bg-[#161d28] text-slate-400 flex items-center justify-center hover:bg-slate-700 hover:text-white border border-[#273447] transition"
+            className="w-8 h-8 bg-info-surface text-ink-muted flex items-center justify-center hover:bg-active hover:text-white border border-line-strong transition"
             title="Close"
           >
             <i className="fa-solid fa-xmark text-xs"></i>
@@ -167,38 +170,38 @@ export const StylometryLabModal: React.FC<StylometryLabModalProps> = ({
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4 my-4">
           <div>
             <div className="flex justify-between items-center mb-1 text-[11px] font-mono">
-              <span className="text-slate-300 font-bold">Sample A: Dread Forum</span>
-              <span className="text-slate-500">Handle: ZeroTrace</span>
+              <span className="text-ink font-bold">Sample A: Dread Forum</span>
+              <span className="text-ink-faint">Handle: ZeroTrace</span>
             </div>
             <textarea
               rows={8}
               value={textA}
               onChange={(e) => setTextA(e.target.value)}
-              className="w-full bg-[#080b10] border border-[#273447] p-3 text-slate-200 font-mono text-xs outline-none resize-none focus:border-[#425575] transition"
+              className="w-full bg-input border border-line-strong p-3 text-ink font-mono text-xs resize-none focus:border-info-line-strong transition"
             />
           </div>
 
           <div>
             <div className="flex justify-between items-center mb-1 text-[11px] font-mono">
-              <span className="text-slate-300 font-bold">Sample B: Exploit.in Forum</span>
-              <span className="text-slate-500">Handle: ShadowByte</span>
+              <span className="text-ink font-bold">Sample B: Exploit.in Forum</span>
+              <span className="text-ink-faint">Handle: ShadowByte</span>
             </div>
             <textarea
               rows={8}
               value={textB}
               onChange={(e) => setTextB(e.target.value)}
-              className="w-full bg-[#080b10] border border-[#273447] p-3 text-slate-200 font-mono text-xs outline-none resize-none focus:border-[#425575] transition"
+              className="w-full bg-input border border-line-strong p-3 text-ink font-mono text-xs resize-none focus:border-info-line-strong transition"
             />
           </div>
         </div>
 
         {/* Controls */}
-        <div className="flex flex-wrap items-center justify-between gap-3 pt-2 pb-4 border-b border-[#1e2533]">
+        <div className="flex flex-wrap items-center justify-between gap-3 pt-2 pb-4 border-b border-line">
           <div className="flex items-center gap-2">
             <button
               onClick={handleRun}
               disabled={loading}
-              className="px-5 py-2.5 bg-[#1e2736] hover:bg-[#283448] text-white text-xs font-bold font-mono transition border border-[#37455d] flex items-center gap-2"
+              className="px-5 py-2.5 bg-active hover:bg-info-hover text-white text-xs font-bold font-mono transition border border-line-active flex items-center gap-2"
             >
               {loading ? (
                 <span className="inline-block w-3.5 h-3.5 border-2 border-white border-t-transparent animate-spin"></span>
@@ -209,7 +212,7 @@ export const StylometryLabModal: React.FC<StylometryLabModalProps> = ({
             </button>
             <button
               onClick={handleLoadUnrelated}
-              className="px-3 py-2 bg-[#121620] hover:bg-[#1a212d] text-slate-300 border border-[#232d3d] text-xs font-mono transition"
+              className="px-3 py-2 bg-surface hover:bg-raised text-ink border border-line-strong text-xs font-mono transition"
             >
               Load Unrelated Sample
             </button>
@@ -217,7 +220,7 @@ export const StylometryLabModal: React.FC<StylometryLabModalProps> = ({
 
           <button
             onClick={handleReset}
-            className="text-xs text-slate-400 hover:text-slate-200 font-mono underline"
+            className="text-xs text-ink-muted hover:text-ink font-mono underline"
           >
             Reset Defaults
           </button>
@@ -225,17 +228,17 @@ export const StylometryLabModal: React.FC<StylometryLabModalProps> = ({
 
         {/* Results Section */}
         {result && (
-          <div className="mt-4 bg-[#080c14] border border-[#1e2533] p-4 font-mono text-xs space-y-4">
-            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 border-b border-[#161d28] pb-3">
+          <div className="mt-4 bg-input border border-line p-4 font-mono text-xs space-y-4">
+            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 border-b border-line-faint pb-3">
               <div>
-                <span className="text-[10px] text-slate-400 uppercase">
+                <span className="text-[10px] text-ink-muted uppercase">
                   Ensemble Author-Profile Similarity
                 </span>
                 <div className="text-2xl font-bold text-white mt-0.5">
                   {(result.similarity_score * 100).toFixed(1)}%
                   <span
                     className={`text-xs font-normal ml-2 ${
-                      result.similarity_score >= result.threshold ? "text-emerald-400" : "text-amber-400"
+                      result.similarity_score >= result.threshold ? "text-signal-ink" : "text-warn-ink"
                     }`}
                   >
                     {result.confidence_tier}
@@ -243,17 +246,17 @@ export const StylometryLabModal: React.FC<StylometryLabModalProps> = ({
                 </div>
               </div>
               <div className="flex flex-col items-end gap-1">
-                <span className="px-2.5 py-1 bg-[#141a24] text-slate-300 border border-[#232d3d] text-[11px]">
+                <span className="px-2.5 py-1 bg-info-surface text-ink border border-line-strong text-[11px]">
                   Shared Tokens: {result.shared_tokens_count}
                 </span>
-                <span className="px-2.5 py-1 bg-[#141a24] text-slate-400 border border-[#232d3d] text-[10px]">
+                <span className="px-2.5 py-1 bg-info-surface text-ink-muted border border-line-strong text-[10px]">
                   Threshold {result.threshold} · FPR {result.fpr_at_threshold}
                 </span>
               </div>
             </div>
 
             {result.ensemble.degraded && (
-              <div className="bg-amber-950/40 border border-amber-700/50 px-3 py-2 text-[11px] text-amber-200">
+              <div className="bg-warn-surface/40 border border-warn-line px-3 py-2 text-[11px] text-warn-ink">
                 Only {result.ensemble.methods_used.join(", ") || "no methods"} contributed to this score.
                 The other methods were skipped because the samples are too short for them to be
                 meaningful; a degraded score is not the same claim as a full one.
@@ -287,21 +290,21 @@ export const StylometryLabModal: React.FC<StylometryLabModalProps> = ({
             {/* Side-by-side diff with shared spans highlighted */}
             <div>
               <div className="flex items-center justify-between mb-1.5">
-                <span className="text-[10px] text-slate-400 uppercase">
+                <span className="text-[10px] text-ink-muted uppercase">
                   Shared Span Diff
                 </span>
-                <span className="text-[10px] text-slate-500">
-                  <mark className="bg-[#1d3a5c] text-cyan-200 px-1">highlighted</mark> tokens appear in
+                <span className="text-[10px] text-ink-faint">
+                  <mark className="bg-info-hover text-info-ink px-1">highlighted</mark> tokens appear in
                   both samples
                 </span>
               </div>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                <div className="bg-[#090c12] border border-[#1a212d] p-2.5">
-                  <span className="text-[10px] text-slate-400 uppercase block mb-1">Sample A</span>
+                <div className="bg-input border border-line p-2.5">
+                  <span className="text-[10px] text-ink-muted uppercase block mb-1">Sample A</span>
                   <HighlightedText text={textA} shared={sharedTokens} />
                 </div>
-                <div className="bg-[#090c12] border border-[#1a212d] p-2.5">
-                  <span className="text-[10px] text-slate-400 uppercase block mb-1">Sample B</span>
+                <div className="bg-input border border-line p-2.5">
+                  <span className="text-[10px] text-ink-muted uppercase block mb-1">Sample B</span>
                   <HighlightedText text={textB} shared={sharedTokens} />
                 </div>
               </div>
@@ -314,25 +317,24 @@ export const StylometryLabModal: React.FC<StylometryLabModalProps> = ({
                 const profile = side === "a" ? result.script_profile_a : result.script_profile_b;
                 if (!profile) return null;
                 return (
-                  <div key={side} className="bg-[#0e131d] p-2.5 border border-[#1a2230] flex flex-wrap gap-x-4 gap-y-1">
-                    <span className="text-slate-400 uppercase text-[10px]">Sample {side.toUpperCase()} script</span>
-                    <span className="text-slate-200">latin {(profile.latin * 100).toFixed(0)}%</span>
-                    <span className="text-slate-200">indic {(profile.indic * 100).toFixed(0)}%</span>
-                    <span className="text-slate-200">emoji {(profile.emoji * 100).toFixed(0)}%</span>
+                  <div key={side} className="bg-surface p-2.5 border border-line flex flex-wrap gap-x-4 gap-y-1">
+                    <span className="text-ink-muted uppercase text-[10px]">Sample {side.toUpperCase()} script</span>
+                    <span className="text-ink">latin {(profile.latin * 100).toFixed(0)}%</span>
+                    <span className="text-ink">indic {(profile.indic * 100).toFixed(0)}%</span>
+                    <span className="text-ink">emoji {(profile.emoji * 100).toFixed(0)}%</span>
                     {profile.code_mixed && (
-                      <span className="text-cyan-300">code-mixed</span>
+                      <span className="text-info-ink">code-mixed</span>
                     )}
                   </div>
                 );
               })}
             </div>
 
-            <p className="text-[10px] text-slate-500 leading-relaxed border-t border-[#161d28] pt-3">
+            <p className="text-[10px] text-ink-faint leading-relaxed border-t border-line-faint pt-3">
               {result.evidentiary_caveat}
             </p>
           </div>
         )}
-      </div>
-    </div>
+    </Modal>
   );
 };

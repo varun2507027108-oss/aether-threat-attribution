@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState } from "react";
+import { Modal } from "@/components/Modal";
 import { checkBackendHealth } from "@/lib/api";
 
 interface EngineConfigModalProps {
@@ -21,8 +22,6 @@ export const EngineConfigModal: React.FC<EngineConfigModalProps> = ({
   const [neo4jUrl, setNeo4jUrl] = useState<string>("bolt://localhost:7687");
   const [pinging, setPinging] = useState<boolean>(false);
   const [pingResult, setPingResult] = useState<{ status: string; latency: number } | null>(null);
-
-  if (!isOpen) return null;
 
   const handlePing = async () => {
     setPinging(true);
@@ -54,22 +53,26 @@ export const EngineConfigModal: React.FC<EngineConfigModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 bg-black/85 flex items-center justify-center z-50 p-4">
-      <div className="bg-[#0d1017] p-6 max-w-md w-full border border-[#273447]">
+    <Modal
+      isOpen={isOpen}
+      onClose={onClose}
+      title="Engine configuration"
+      size="sm"
+    >
         {/* Modal Header */}
-        <div className="flex justify-between items-center border-b border-[#1e2533] pb-3">
+        <div className="flex justify-between items-center border-b border-line pb-3">
           <div className="flex items-center gap-2.5">
-            <div className="w-8 h-8 bg-[#1e2736] text-white flex items-center justify-center text-xs border border-[#303d52]">
+            <div className="w-8 h-8 bg-active text-white flex items-center justify-center text-xs border border-line-active">
               <i className="fa-solid fa-sliders"></i>
             </div>
             <div>
               <h3 className="text-base font-bold text-white">Engine Configuration</h3>
-              <p className="text-[11px] text-slate-400 font-mono">Gateway &amp; Recon Proxy Settings</p>
+              <p className="text-[11px] text-ink-muted font-mono">Gateway &amp; Recon Proxy Settings</p>
             </div>
           </div>
           <button
             onClick={onClose}
-            className="w-8 h-8 bg-[#161d28] text-slate-400 flex items-center justify-center hover:bg-slate-700 hover:text-white border border-[#273447] transition"
+            className="w-8 h-8 bg-info-surface text-ink-muted flex items-center justify-center hover:bg-active hover:text-white border border-line-strong transition"
             title="Close"
           >
             <i className="fa-solid fa-xmark text-xs"></i>
@@ -81,15 +84,15 @@ export const EngineConfigModal: React.FC<EngineConfigModalProps> = ({
           {/* Tor SOCKS5 Settings */}
           <div>
             <div className="flex justify-between items-center mb-1">
-              <label className="text-slate-300 uppercase text-[10px] font-bold">
+              <label className="text-ink uppercase text-[10px] font-bold">
                 Tor SOCKS5 Proxy Circuit
               </label>
-              <label className="flex items-center gap-1.5 cursor-pointer text-[10px] text-slate-400">
+              <label className="flex items-center gap-1.5 cursor-pointer text-[10px] text-ink-muted">
                 <input
                   type="checkbox"
                   checked={torEnabled}
                   onChange={(e) => setTorEnabled(e.target.checked)}
-                  className="accent-slate-200"
+                  className="accent-ink"
                 />
                 Enabled
               </label>
@@ -100,21 +103,21 @@ export const EngineConfigModal: React.FC<EngineConfigModalProps> = ({
                 value={torHost}
                 onChange={(e) => setTorHost(e.target.value)}
                 placeholder="Host"
-                className="col-span-2 bg-[#080b10] border border-[#273447] p-2 text-slate-200 outline-none"
+                className="col-span-2 bg-input border border-line-strong p-2 text-ink"
               />
               <input
                 type="text"
                 value={torPort}
                 onChange={(e) => setTorPort(e.target.value)}
                 placeholder="Port"
-                className="bg-[#080b10] border border-[#273447] p-2 text-slate-200 outline-none"
+                className="bg-input border border-line-strong p-2 text-ink"
               />
             </div>
           </div>
 
           {/* FastAPI Backend URL */}
           <div>
-            <label className="text-slate-300 block mb-1 uppercase text-[10px] font-bold">
+            <label className="text-ink block mb-1 uppercase text-[10px] font-bold">
               FastAPI Forensic Backend URL
             </label>
             <input
@@ -122,13 +125,13 @@ export const EngineConfigModal: React.FC<EngineConfigModalProps> = ({
               value={backendUrl}
               onChange={(e) => setBackendUrl(e.target.value)}
               placeholder="http://localhost:8000"
-              className="w-full bg-[#080b10] border border-[#273447] p-2 text-slate-200 outline-none"
+              className="w-full bg-input border border-line-strong p-2 text-ink"
             />
           </div>
 
           {/* Neo4j Bolt URL */}
           <div>
-            <label className="text-slate-300 block mb-1 uppercase text-[10px] font-bold">
+            <label className="text-ink block mb-1 uppercase text-[10px] font-bold">
               Neo4j Graph Database
             </label>
             <input
@@ -136,15 +139,15 @@ export const EngineConfigModal: React.FC<EngineConfigModalProps> = ({
               value={neo4jUrl}
               onChange={(e) => setNeo4jUrl(e.target.value)}
               placeholder="bolt://localhost:7687"
-              className="w-full bg-[#080b10] border border-[#273447] p-2 text-slate-200 outline-none"
+              className="w-full bg-input border border-line-strong p-2 text-ink"
             />
           </div>
 
           {/* Gateway Ping Status */}
-          <div className="bg-[#080c14] border border-[#1e2533] p-3 flex justify-between items-center">
+          <div className="bg-input border border-line p-3 flex justify-between items-center">
             <div>
-              <span className="text-[10px] text-slate-400 block uppercase">Gateway Telemetry</span>
-              <span className="text-xs font-bold text-emerald-400">
+              <span className="text-[10px] text-ink-muted block uppercase">Gateway Telemetry</span>
+              <span className="text-xs font-bold text-signal-ink">
                 {pingResult ? `${pingResult.status} (${pingResult.latency}ms)` : "127.0.0.1:8000"}
               </span>
             </div>
@@ -152,7 +155,7 @@ export const EngineConfigModal: React.FC<EngineConfigModalProps> = ({
               type="button"
               onClick={handlePing}
               disabled={pinging}
-              className="px-3 py-1.5 bg-[#16202e] hover:bg-[#202d40] text-blue-200 border border-[#2c3f5c] text-[11px] font-bold transition flex items-center gap-1.5"
+              className="px-3 py-1.5 bg-raised hover:bg-active text-info-ink border border-line-active text-[11px] font-bold transition flex items-center gap-1.5"
             >
               {pinging ? (
                 <span className="inline-block w-3 h-3 border-2 border-white border-t-transparent animate-spin"></span>
@@ -167,13 +170,12 @@ export const EngineConfigModal: React.FC<EngineConfigModalProps> = ({
           <div className="flex gap-2 pt-2">
             <button
               type="submit"
-              className="w-full py-2.5 bg-[#1e2736] hover:bg-[#283448] text-white font-bold transition border border-[#37455d] flex items-center justify-center gap-2"
+              className="w-full py-2.5 bg-active hover:bg-info-hover text-white font-bold transition border border-line-active flex items-center justify-center gap-2"
             >
               <i className="fa-solid fa-check text-xs"></i> Save &amp; Apply
             </button>
           </div>
         </form>
-      </div>
-    </div>
+    </Modal>
   );
 };

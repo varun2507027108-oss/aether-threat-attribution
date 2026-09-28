@@ -1,5 +1,17 @@
 import type { Metadata } from "next";
 import { Plus_Jakarta_Sans, JetBrains_Mono } from "next/font/google";
+
+/*
+ * Font Awesome is bundled, not fetched.
+ *
+ * This was a <link> to cdnjs.cloudflare.com in the document head, which meant
+ * every load of a threat-intelligence console reached a third-party CDN --
+ * disclosing the analyst's IP and the fact that they are running this tool --
+ * and rendered every icon as a broken glyph in an air-gapped examination
+ * room. Serving the same stylesheet from our own origin keeps the icon system
+ * and drops the external dependency.
+ */
+import "@fortawesome/fontawesome-free/css/all.min.css";
 import "./globals.css";
 
 const plusJakarta = Plus_Jakarta_Sans({
@@ -26,16 +38,15 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en" className={`dark ${plusJakarta.variable} ${jetbrainsMono.variable}`}>
-      <head>
-        <link
-          rel="stylesheet"
-          href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css"
-          crossOrigin="anonymous"
-          referrerPolicy="no-referrer"
-        />
-      </head>
-      <body className="min-h-screen p-4 md:p-6 lg:p-8 flex justify-center items-start selection:bg-[#273447] selection:text-white bg-[#000000] font-sans antialiased">
-        {children}
+      {/*
+        A block element with an auto-margin centre, not a flex container with
+        justify-center. When the shell was wider than the viewport, centring it
+        pushed overflow off BOTH edges at once: the left-hand content became
+        unreachable and the right-hand content was clipped, with no scrollbar
+        explaining either. Overflow is now one-directional and visible.
+      */}
+      <body className="min-h-screen p-3 md:p-5 lg:p-6 font-sans antialiased">
+        <div className="mx-auto w-full max-w-[1520px]">{children}</div>
       </body>
     </html>
   );

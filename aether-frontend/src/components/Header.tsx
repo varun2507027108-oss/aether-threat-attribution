@@ -78,7 +78,10 @@ export const Header: React.FC<HeaderProps> = ({
     <header className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4">
       <div className="flex items-center gap-4">
         {/* Geometric Sunburst Logo (Sharp Square, Steel Tone) */}
-        <div className="w-12 h-12 flex items-center justify-center text-slate-200 bg-[#121721] border border-[#273447]">
+        <div
+          className="w-12 h-12 flex items-center justify-center text-ink-muted bg-surface border border-line-strong shrink-0"
+          aria-hidden="true"
+        >
           <svg
             className="w-8 h-8"
             viewBox="0 0 100 100"
@@ -97,59 +100,81 @@ export const Header: React.FC<HeaderProps> = ({
             <line x1="65" y1="35" x2="77" y2="23" />
           </svg>
         </div>
-        <div>
-          <h1 className="text-2xl lg:text-3xl font-extrabold tracking-tight text-white flex items-center gap-2 flex-wrap">
-            Hello, Lead Investigator!
-            {/* Active Case Badge with Switcher */}
+        <div className="min-w-0">
+          {/*
+            The page heading is the product, not a greeting. "Hello, Lead
+            Investigator!" was the h1, which made every section heading on the
+            page a subordinate of a salutation, and it changed for nobody
+            except the person reading it. The greeting moved to the subtitle,
+            where it costs nothing semantically.
+          */}
+          <h1 className="text-2xl lg:text-3xl font-extrabold tracking-tight text-ink flex items-center gap-2 flex-wrap">
+            AETHER
+            {/* Active Case switcher */}
             <div className="relative inline-block">
               <button
                 type="button"
-                onClick={() => setCaseMenuOpen(!caseMenuOpen)}
-                className="text-xs font-semibold px-2.5 py-1 bg-[#161d28] hover:bg-[#1e2736] text-slate-200 border border-[#273447] hover:border-sky-500 font-mono flex items-center gap-1.5 transition"
-                title="Switch active forensic case"
+                onClick={() => setCaseMenuOpen((v) => !v)}
+                aria-expanded={caseMenuOpen}
+                aria-haspopup="menu"
+                className="text-xs font-semibold px-2.5 py-1 min-h-8 bg-info-surface hover:bg-raised text-ink-muted border border-line-strong hover:border-info font-mono flex items-center gap-1.5 transition"
               >
-                <span className="w-2 h-2 bg-sky-400"></span>
+                <span className="w-2 h-2 bg-info shrink-0" aria-hidden="true" />
                 <span>{activeEvidenceId}</span>
-                <span className="text-slate-400">({activeActorName})</span>
-                <span className="text-emerald-400 font-bold">{activeConfidence}%</span>
-                <i className="fa-solid fa-chevron-down text-[9px] text-slate-400 ml-0.5"></i>
+                <span className="text-ink-dim">({activeActorName})</span>
+                <span className="text-signal-ink font-bold">{activeConfidence}%</span>
+                <i
+                  className={`fa-solid fa-chevron-down text-[9px] text-ink-dim ml-0.5 transition-transform ${
+                    caseMenuOpen ? "rotate-180" : ""
+                  }`}
+                  aria-hidden="true"
+                />
+                <span className="sr-only">Switch active case</span>
               </button>
 
               {caseMenuOpen && (
-                <div className="absolute left-0 mt-1 w-72 bg-[#0c1017] border border-[#273447] shadow-2xl z-50 font-mono text-xs">
-                  <div className="p-2 border-b border-[#1c2432] text-[10px] uppercase font-bold text-slate-400 flex justify-between">
-                    <span>Recent Investigations</span>
-                    <span>{casesList.length} Cases</span>
+                <div
+                  role="menu"
+                  aria-label="Recent investigations"
+                  className="absolute left-0 mt-1 w-72 bg-overlay border border-line-strong shadow-2xl z-50 font-mono text-xs"
+                >
+                  <div className="p-2 border-b border-line text-[10px] uppercase font-bold text-ink-dim flex justify-between">
+                    <span>Recent investigations</span>
+                    <span>{casesList.length} cases</span>
                   </div>
-                  <div className="max-h-56 overflow-y-auto">
+                  <div className="max-h-56 overflow-y-auto scrollbar-thin">
                     {casesList.length === 0 ? (
-                      <div className="p-3 text-slate-500 text-[11px]">No other cases loaded.</div>
+                      <div className="p-3 text-ink-dim text-[11px]">No other cases loaded.</div>
                     ) : (
                       casesList.map((c) => (
                         <button
                           key={c.evidence_id}
                           type="button"
+                          role="menuitem"
                           onClick={() => {
                             if (onSelectCase) onSelectCase(c.evidence_id);
                             setCaseMenuOpen(false);
-                            onShowToast("Case Switched", `Loaded investigation ${c.evidence_id} (${c.actor_name}).`);
+                            onShowToast(
+                              "Case switched",
+                              `Loaded investigation ${c.evidence_id} (${c.actor_name}).`
+                            );
                           }}
-                          className={`w-full text-left p-2.5 hover:bg-[#141d2a] border-b border-[#17202c] transition flex items-center justify-between ${
-                            c.evidence_id === activeEvidenceId ? "bg-[#141e2c] border-sky-500/40" : ""
+                          className={`w-full text-left p-2.5 min-h-11 hover:bg-raised border-b border-line-faint transition flex items-center justify-between gap-2 ${
+                            c.evidence_id === activeEvidenceId ? "bg-active border-info-line" : ""
                           }`}
                         >
-                          <div>
-                            <div className="font-bold text-white flex items-center gap-1.5">
+                          <div className="min-w-0">
+                            <div className="font-bold text-ink flex items-center gap-1.5">
                               <span>{c.evidence_id}</span>
-                              <span className="text-[10px] text-slate-400 font-normal">
+                              <span className="text-[10px] text-ink-dim font-normal truncate">
                                 {c.actor_name}
                               </span>
                             </div>
-                            <div className="text-[10px] text-slate-500 truncate max-w-[180px]">
+                            <div className="text-[10px] text-ink-dim truncate max-w-[180px]">
                               {c.target_url}
                             </div>
                           </div>
-                          <span className="text-[11px] font-bold text-emerald-400">
+                          <span className="text-[11px] font-bold text-signal-ink shrink-0">
                             {c.confidence}%
                           </span>
                         </button>
@@ -158,153 +183,149 @@ export const Header: React.FC<HeaderProps> = ({
                   </div>
                   <button
                     type="button"
+                    role="menuitem"
                     onClick={() => {
                       setCaseMenuOpen(false);
                       onOpenNewInvestigation();
                     }}
-                    className="w-full p-2 bg-[#121822] hover:bg-[#1a2332] text-sky-300 font-bold text-[11px] text-center border-t border-[#1c2432] transition flex items-center justify-center gap-1.5"
+                    className="w-full p-2 min-h-11 bg-surface hover:bg-raised text-info-ink font-bold text-[11px] text-center border-t border-line transition flex items-center justify-center gap-1.5"
                   >
-                    <i className="fa-solid fa-plus text-[10px]"></i>
+                    <i className="fa-solid fa-plus text-[10px]" aria-hidden="true"></i>
                     <span>START NEW INVESTIGATION</span>
                   </button>
                 </div>
               )}
             </div>
 
-            {/* Live Backend Connection Badge */}
+            {/* Live backend connection badge */}
             <span
-              className={`text-[11px] font-mono font-bold px-2 py-0.5 border flex items-center gap-1.5 transition ${
+              className={`text-[11px] font-mono font-bold px-2 py-0.5 border flex items-center gap-1.5 ${
                 apiOnline
-                  ? "bg-[#102a1b] text-[#22c55e] border-[#1f5735]"
-                  : "bg-[#161d28] text-slate-400 border-[#273447]"
+                  ? "bg-signal-surface text-signal-ink border-signal-line"
+                  : "bg-info-surface text-ink-dim border-line-strong"
               }`}
             >
               <span
+                aria-hidden="true"
                 className={`w-1.5 h-1.5 ${
-                  apiOnline ? "bg-[#22c55e] animate-pulse" : "bg-slate-500"
+                  apiOnline ? "bg-signal aether-live-pulse" : "bg-ink-faint"
                 }`}
-              ></span>
-              {apiOnline ? "API ONLINE :8000" : "STANDALONE / SIM"}
+              />
+              {apiOnline ? "API online" : "API unreachable — showing cached case"}
             </span>
           </h1>
-          <p className="text-slate-400 text-sm font-medium mt-0.5">
+          <p className="text-ink-muted text-sm font-medium mt-0.5">
             Dark web threat actor de-anonymization &amp; forensic intelligence for NTRO PS-26151
           </p>
         </div>
       </div>
 
-      {/* Primary Action Button & Search Bar */}
-      <div className="flex items-center gap-3 w-full lg:w-auto flex-wrap sm:flex-nowrap">
-        {/* NEW INVESTIGATION BUTTON */}
+      {/* Primary action & search */}
+      <div className="flex items-center gap-2 sm:gap-3 w-full lg:w-auto flex-wrap xl:flex-nowrap">
+        {/*
+          This was the only gradient and the only glow in the product, on the
+          primary action, in an interface that is otherwise flat steel with
+          hairline borders. The emphasis now comes from a solid raised fill and
+          an info-coloured border, which is the same weight the rest of the
+          console already uses.
+        */}
         <button
           type="button"
           onClick={onOpenNewInvestigation}
-          className="px-4 py-2 bg-gradient-to-r from-sky-600 to-blue-700 hover:from-sky-500 hover:to-blue-600 text-white font-mono text-xs font-bold tracking-wider transition border border-sky-400/50 flex items-center gap-2 shadow-[0_0_12px_rgba(56,189,248,0.25)] shrink-0"
-          title="Launch new dark web target investigation"
+          className="px-4 py-2 min-h-11 bg-active hover:bg-info-hover text-ink font-mono text-xs font-bold tracking-wider transition border border-info-line-strong flex items-center gap-2 shrink-0"
         >
-          <i className="fa-solid fa-crosshairs text-xs"></i>
-          <span>+ NEW INVESTIGATION</span>
+          <i className="fa-solid fa-crosshairs text-xs" aria-hidden="true"></i>
+          <span>NEW INVESTIGATION</span>
         </button>
 
-        {/* Quick Search Input */}
+        {/* Quick search */}
         <form
           onSubmit={handleSearchSubmit}
-          className="flex items-center bg-[#0d1017] pl-4 pr-1.5 py-1.5 border border-[#1e2533] w-full sm:w-80 focus-within:border-[#3b495f] transition"
+          role="search"
+          className="flex items-center bg-card pl-3 pr-1 py-1 border border-line w-full sm:w-80 focus-within:border-info transition"
         >
+          <label htmlFor="aether-target-search" className="sr-only">
+            Search by onion address, PGP fingerprint, or Bitcoin wallet
+          </label>
           <input
+            id="aether-target-search"
             type="text"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             placeholder="Search .onion, PGP, BTC..."
-            className="bg-transparent text-sm w-full outline-none text-slate-100 placeholder-slate-500 font-medium font-mono"
+            className="bg-transparent text-sm w-full text-ink placeholder:text-ink-faint font-medium font-mono py-1"
           />
           <button
             type="submit"
-            className="w-8 h-8 bg-[#1e2736] hover:bg-[#283448] text-white flex items-center justify-center transition shrink-0 border border-[#303d52]"
-            title="Execute Recon Probe"
+            aria-label="Run recon probe"
+            className="w-9 h-9 bg-active hover:bg-info-hover text-ink flex items-center justify-center transition shrink-0 border border-line-strong"
           >
-            <i className="fa-solid fa-magnifying-glass text-xs"></i>
+            <i className="fa-solid fa-magnifying-glass text-xs" aria-hidden="true"></i>
           </button>
         </form>
-
-        <button
-          type="button"
-          onClick={() =>
-            onShowToast(
-              "Secure Channels",
-              "Zero unread operational dispatches on encrypted onion bridge."
-            )
-          }
-          className="w-10 h-10 bg-[#0d1017] border border-[#1e2533] flex items-center justify-center text-slate-400 hover:text-white transition shrink-0"
-          title="Secure Channels"
-        >
-          <i className="fa-regular fa-comment-dots text-sm"></i>
-        </button>
 
         <a
           href="/verify.html"
           target="_blank"
           rel="noopener noreferrer"
-          className="w-10 h-10 bg-[#0d1017] border border-[#1e2533] flex items-center justify-center text-slate-400 hover:text-white transition shrink-0"
-          title="Independent Chain Verifier (opens offline in a new tab)"
+          aria-label="Open the independent chain verifier in a new tab"
+          className="w-11 h-11 bg-card border border-line flex items-center justify-center text-ink-dim hover:text-ink hover:border-line-active transition shrink-0"
         >
-          <i className="fa-solid fa-shield-halved text-sm"></i>
+          <i className="fa-solid fa-shield-halved text-sm" aria-hidden="true"></i>
         </a>
 
         <button
           type="button"
           onClick={handleAffirmExport}
           disabled={confirming || !identity?.can_confirm_export}
-          className={`h-10 px-3 border flex items-center gap-2 text-[11px] font-mono font-bold transition shrink-0 ${
+          className={`h-11 px-3 border flex items-center gap-2 text-[11px] font-mono font-bold transition shrink-0 ${
             identity?.can_confirm_export
-              ? "bg-[#16253b] hover:bg-[#1f3b57] text-cyan-300 border-[#2d466b]"
-              : "bg-[#0d1017] text-slate-600 border-[#1e2533] cursor-not-allowed"
+              ? "bg-info-raised hover:bg-info-hover text-info-ink border-info-line-strong"
+              : "bg-card text-ink-faint border-line cursor-not-allowed"
           }`}
-          title={
-            identity?.can_confirm_export
-              ? "Affirm release of this dossier (human-in-the-loop export gate)"
-              : "Only an investigator may affirm an export"
-          }
         >
           {confirming ? (
-            <span className="inline-block w-3 h-3 border border-cyan-400 border-t-transparent animate-spin"></span>
+            <span
+              className="inline-block w-3 h-3 border border-info-ink border-t-transparent rounded-full animate-spin"
+              aria-hidden="true"
+            />
           ) : (
-            <i className="fa-solid fa-file-signature text-xs"></i>
+            <i className="fa-solid fa-file-signature text-xs" aria-hidden="true"></i>
           )}
           <span className="hidden xl:inline">AFFIRM EXPORT</span>
+          <span className="sr-only">
+            {identity?.can_confirm_export
+              ? "Affirm release of this dossier"
+              : "Only an investigator with export rights can affirm a release"}
+          </span>
         </button>
 
-        {identity && (
+        {identity ? (
           <span
-            className={`h-10 px-3 border flex items-center gap-2 text-[11px] font-mono font-bold shrink-0 ${
+            className={`h-11 px-3 border flex items-center gap-2 text-[11px] font-mono font-bold shrink-0 ${
               identity.role === "investigator"
-                ? "bg-[#14261e] text-emerald-300 border-[#1f4433]"
-                : "bg-[#2a1f14] text-amber-300 border-[#4a3520]"
-            }`}
-            title={`${identity.operator} · key ${identity.key_id} · ${
-              identity.can_write ? "read/write" : "read-only"
+                ? "bg-signal-surface text-signal-ink border-signal-line"
+                : "bg-warn-surface text-warn-ink border-warn-line"
             }`}
           >
             <i
               className={`fa-solid ${identity.can_write ? "fa-user-shield" : "fa-user-lock"} text-xs`}
-            ></i>
+              aria-hidden="true"
+            />
             <span className="uppercase">{identity.role}</span>
+            <span className="sr-only">
+              , {identity.operator}, {identity.can_write ? "read and write" : "read only"}
+            </span>
+          </span>
+        ) : (
+          <span className="h-11 px-3 border border-line bg-card flex items-center text-[11px] font-mono text-ink-dim">
+            Identity unresolved
+            <span className="sr-only">
+              . The role of the current API key could not be determined, so permissions are
+              unknown.
+            </span>
           </span>
         )}
-
-        <button
-          type="button"
-          onClick={() =>
-            onShowToast(
-              "System Alerts",
-              "Origin discovery probe #14 completed: Apache /server-status verified."
-            )
-          }
-          className="w-10 h-10 bg-[#0d1017] border border-[#1e2533] flex items-center justify-center text-slate-400 hover:text-white transition shrink-0"
-          title="System Alerts"
-        >
-          <i className="fa-regular fa-bell text-sm"></i>
-        </button>
       </div>
     </header>
   );

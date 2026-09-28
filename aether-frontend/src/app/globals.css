@@ -1,64 +1,195 @@
 @import "tailwindcss";
 
+/* ==========================================================================
+   AETHER design tokens
+   --------------------------------------------------------------------------
+   A dark-only console, used in a SOC at night and in an air-gapped
+   examination room. Dark is chosen from that use scene, not from category
+   habit: an analyst stares at this for hours and the surfaces must not
+   glare back.
+
+   Every colour in the product resolves to a token here. The 0px radius and
+   the hairline 1px borders are the house identity, not a default.
+   ========================================================================== */
+
 @theme {
+  /* --- Surfaces -------------------------------------------------------
+     Seven steps from the page down to a chart well. Anything that is not
+     genuinely a new plane of depth collapses onto one of these. */
   --color-canvas: #000000;
-  --color-cardDark: #0d1017;
-  --color-cardHover: #131722;
-  --color-borderDark: #1e2533;
-  --color-borderSubtle: #181e2b;
-  --color-steelBg: #161d28;
-  --color-steelBorder: #273447;
-  --color-steelActive: #222d3d;
-  --color-steelText: #94a3b8;
-  --color-graphGreen: #22c55e;
-  --color-graphGreenLine: #16a34a;
-  --color-graphGreenMuted: #14291c;
-  --color-alertRed: #dc2626;
-  --color-alertRedBg: #2a1215;
-  --color-alertRedBorder: #4a1f24;
-  --color-alertRedText: #f87171;
+  --color-sunken: #06080d; /* chart canvas, deepest inset */
+  --color-input: #080b10; /* form field wells */
+  --color-card: #0d1017; /* the canonical card */
+  --color-surface: #12161f; /* panels, banners, modals, tooltips */
+  --color-raised: #1a2230; /* popovers, row hover */
+  --color-active: #1e2736; /* selected control fill */
+
+  /* --- Lines ----------------------------------------------------------
+     Four weights of hairline. `faint` is chart gridline weight only. */
+  --color-line-faint: #141c29;
+  --color-line: #1e2533;
+  --color-line-strong: #273447;
+  --color-line-active: #37455d;
+
+  /* --- Ink ------------------------------------------------------------
+     All four clear 4.5:1 on `--color-card`. The old slate-500 role failed
+     at 4.33:1 and is deliberately gone rather than nudged. */
+  --color-ink: #f1f5f9;
+  --color-ink-muted: #94a3b8; /* 7.4:1  secondary text */
+  --color-ink-dim: #8593a8; /* 6.1:1  tertiary, labels */
+  --color-ink-faint: #76869c; /* 5.1:1  the floor, never smaller than 10px */
+
+  /* --- Signal: corroborated, verified, sealed ------------------------- */
+  --color-signal: #22c55e;
+  --color-signal-ink: #4ade80;
+  --color-signal-surface: #0f2419;
+  --color-signal-line: #1f5735;
+  --color-signal-line-soft: #22442c;
+
+  /* --- Alert: contradiction, tamper, denial --------------------------- */
+  --color-alert: #dc2626;
+  --color-alert-ink: #f87171;
+  --color-alert-surface: #2a1215;
+  --color-alert-line: #4a1f24;
+
+  /* --- Info: live telemetry, active case ------------------------------ */
+  --color-info: #38bdf8;
+  --color-info-ink: #7dd3fc;
+  --color-info-surface: #121a26;
+  --color-info-raised: #16253b;
+  --color-info-hover: #1f3b57;
+  --color-info-line: #22354e;
+  --color-info-line-soft: #1d3a5c;
+  --color-info-line-strong: #2d466b;
+
+  /* --- Warn: partial, degraded, unavailable --------------------------- */
+  --color-warn: #f59e0b;
+  --color-warn-ink: #fcd34d;
+  --color-warn-surface: #251e10;
+  --color-warn-line: #523d1b;
+
+  /* --- Focus ----------------------------------------------------------
+     One ring colour for the entire product, cyan so it never reads as a
+     state change in the content itself. */
+  --color-focus: #7dd3fc;
 
   --font-sans: var(--font-jakarta), -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   --font-mono: var(--font-jetbrains), ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
 }
 
-* {
-  border-radius: 0px !important;
+@layer base {
+  /* The house identity: nothing in AETHER is rounded. Scoped to the shell
+     and to primitives so a future third-party widget cannot inherit it. */
+  html,
+  body,
+  button,
+  input,
+  select,
+  textarea,
+  img,
+  svg,
+  [role="button"],
+  [role="tab"] {
+    border-radius: 0;
+  }
+
+  html,
+  body {
+    background-color: var(--color-canvas);
+    color: var(--color-ink);
+    min-height: 100vh;
+  }
+
+  /* A single visible focus treatment for every interactive element in the
+     product. Components no longer have to opt in, which is why the twenty
+     `outline-none` declarations could be removed without losing the ring. */
+  :focus-visible {
+    outline: 2px solid var(--color-focus);
+    outline-offset: 2px;
+  }
+
+  /* Keyboard users get the same affordance as pointer users: the native
+     ring is suppressed for mouse and touch only. */
+  :focus:not(:focus-visible) {
+    outline: none;
+  }
+
+  ::selection {
+    background: var(--color-info-line-strong);
+    color: var(--color-ink);
+  }
 }
 
-html, body {
-  background-color: #000000;
-  color: #f1f5f9;
-  min-height: 100vh;
+/* ==========================================================================
+   Motion
+   --------------------------------------------------------------------------
+   One authored moment remains: the telemetry pulse on a live source. It
+   carries "this is live" in its movement alone, so under reduced motion it is
+   held lit rather than stopped, and the state stays readable. The 3D anchor
+   stack that used to live here was removed -- it occluded two of the three
+   evidence identifiers on its own card.
+   ========================================================================== */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
+
+  .aether-live-pulse {
+    animation: none !important;
+    opacity: 1 !important;
+  }
 }
 
-.matte-card {
-  background: #0d1017;
-  border: 1px solid #1e2533;
+/* ==========================================================================
+   Components
+   ========================================================================== */
+@layer components {
+  /* The canonical card. Declares its plane with a border and nothing else;
+     no shadow, so it cannot drift into a ghost card. */
+  .matte-card {
+    background: var(--color-card);
+    border: 1px solid var(--color-line);
+  }
+
+  .matte-card:hover {
+    border-color: var(--color-line-active);
+  }
 }
 
-.matte-card:hover {
-  border-color: #2c374c;
-}
+@layer utilities {
+  /* Visible to screen readers, not to the eye. Used for the demo-data
+     markers, which must be announced as provenance rather than decoration. */
+  .sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border-width: 0;
+  }
 
-.floating-card-3d {
-  transform: perspective(900px) rotateX(15deg) rotateY(-16deg) rotateZ(6deg);
-  transition: all 0.3s ease;
-}
+  .scrollbar-thin::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
 
-.floating-card-3d:hover {
-  transform: perspective(900px) rotateX(6deg) rotateY(-6deg) rotateZ(2deg) translateY(-6px);
-}
+  .scrollbar-thin::-webkit-scrollbar-track {
+    background: var(--color-canvas);
+  }
 
-::-webkit-scrollbar {
-  width: 4px;
-  height: 4px;
-}
+  .scrollbar-thin::-webkit-scrollbar-thumb {
+    background: var(--color-line-strong);
+  }
 
-::-webkit-scrollbar-track {
-  background: #000000;
-}
-
-::-webkit-scrollbar-thumb {
-  background: #1f2735;
+  .scrollbar-thin::-webkit-scrollbar-thumb:hover {
+    background: var(--color-line-active);
+  }
 }

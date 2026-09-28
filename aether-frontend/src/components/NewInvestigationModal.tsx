@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useEffect, useRef, useState } from "react";
+import { Modal } from "@/components/Modal";
 import {
   InvestigationRequest,
   InvestigationResult,
@@ -25,7 +26,7 @@ const PRESETS = [
     targetType: "onion",
     actorName: "UNC-3844 (ZeroTrace)",
     knownPgp: "4D9E 27BC 918A 4F02 C731 09AE 2C5B 88E1 40FA 7D3C",
-    knownBtc: "1A1zP1eP5QGefi2DMPTfTL5SLmv7DivfNa",
+    knownBtc: "bc1qar0srrr7xfkvy5l643lydnw9re59gtzzwf5mdq",
     textSample: "We operate high volume ransom payment gateways on dread. Full escrow guaranteed with PGP.",
   },
   {
@@ -73,6 +74,14 @@ const ANALYSIS_MODULES: ModuleDefinition[] = [
 
 type ModuleStatus = "pending" | "running" | "done" | "failed" | "skipped";
 
+const MODULE_STATUSES: readonly ModuleStatus[] = [
+  "pending",
+  "running",
+  "done",
+  "failed",
+  "skipped",
+];
+
 interface ModuleRuntime {
   status: ModuleStatus;
   startedAt: number | null;
@@ -88,7 +97,7 @@ export const NewInvestigationModal: React.FC<NewInvestigationModalProps> = ({
   onShowToast,
 }) => {
   const [caseName, setCaseName] = useState("Operation Chimera");
-  const [evidenceId, setEvidenceId] = useState(`AT-2026-${Math.floor(1000 + Math.random() * 9000)}`);
+  const [evidenceId, setEvidenceId] = useState("");
   const [actorName, setActorName] = useState("UNC-3844");
   const [target, setTarget] = useState("http://p4lx7e22kq6dreadmarket.onion");
   const [targetType, setTargetType] = useState("onion");
@@ -159,7 +168,25 @@ export const NewInvestigationModal: React.FC<NewInvestigationModalProps> = ({
     };
   }, []);
 
-  if (!isOpen) return null;
+  /*
+   * A case identifier is an audit record, so it is assigned rather than
+   * rolled. This used to be `AT-2026-${Math.floor(1000 + Math.random() * 9000)}`
+   * computed during render, which meant the same target opened twice produced
+   * two different case numbers, and reopening the dialog produced a third.
+   *
+   * `deriveEvidenceId` is deterministic in the target, so an analyst who
+   * re-submits the same onion address lands on the same case and the chain of
+   * custody stays one chain.
+   */
+  const deriveEvidenceId = (seed: string) => {
+    let h = 2166136261;
+    for (let i = 0; i < seed.length; i++) {
+      h ^= seed.charCodeAt(i);
+      h = Math.imul(h, 16777619);
+    }
+    const n = (h >>> 0) % 9000;
+    return `AT-2026-${String(1000 + n).padStart(4, "0")}`;
+  };
 
   const handleApplyPreset = (idx: number) => {
     const p = PRESETS[idx];
@@ -170,7 +197,7 @@ export const NewInvestigationModal: React.FC<NewInvestigationModalProps> = ({
     setKnownPgp(p.knownPgp);
     setKnownBtc(p.knownBtc);
     setTextSample(p.textSample);
-    setEvidenceId(`AT-2026-${Math.floor(1000 + Math.random() * 9000)}`);
+    setEvidenceId(deriveEvidenceId(p.target));
     onShowToast("Preset Loaded", `Configured investigation for ${p.name}.`);
   };
 
@@ -185,10 +212,15 @@ export const NewInvestigationModal: React.FC<NewInvestigationModalProps> = ({
     const initialStates = getInitialStates();
     setModuleStates(initialStates);
 
+    // An analyst may leave the field blank; the identifier is derived from the
+    // target so the same subject always resolves to the same case.
+    const resolvedEvidenceId = evidenceId.trim() || deriveEvidenceId(target.trim());
+    if (!evidenceId.trim()) setEvidenceId(resolvedEvidenceId);
+
     try {
       const payload: InvestigationRequest = {
         case_name: caseName.trim() || "Operation AETHER",
-        evidence_id: evidenceId.trim(),
+        evidence_id: resolvedEvidenceId,
         actor_name: actorName.trim() || "UNC-3844",
         target: target.trim(),
         target_type: targetType,
@@ -229,7 +261,26 @@ export const NewInvestigationModal: React.FC<NewInvestigationModalProps> = ({
           res.job.job_id,
           async (evt) => {
             if (evt.type === "module_update") {
-              const { module: modKey, status: modStatus, summary } = evt.data;
+              /*
+               * The SSE payload is `unknown`: the event stream is a transport
+               * boundary and its shape is whatever the server sent. Narrow it
+               * once here rather than trusting the cast, so a malformed frame
+               * degrades to an ignored update instead of a render crash
+               * mid-investigation.
+               */
+              const payload = evt.data as
+                | { module?: string; status?: string; summary?: string | null }
+                | null;
+              if (!payload || typeof payload.module !== "string") return;
+
+              const modKey = payload.module;
+              const status = payload.status;
+              const modStatus: ModuleStatus = MODULE_STATUSES.includes(
+                status as ModuleStatus
+              )
+                ? (status as ModuleStatus)
+                : "pending";
+              const { summary } = payload;
               const now = Date.now();
               setModuleStates((prev) => {
                 const current = prev[modKey] || {
@@ -344,29 +395,40 @@ export const NewInvestigationModal: React.FC<NewInvestigationModalProps> = ({
         progressIntervalRef.current = null;
       }
       setIsAnalyzing(false);
-      onShowToast("Analysis Error", "Failed to complete investigation pipeline.");
+      // Name the actual failure. A bare "Analysis Error" gave the analyst no
+      // way to tell a rejected target from a backend that was down.
+      const reason = err instanceof Error ? err.message : String(err);
+      onShowToast(
+        "Analysis failed",
+        `${reason}. Nothing was written to the custody chain — check the backend is reachable and retry.`
+      );
     }
   };
 
   return (
-    <div className="fixed inset-0 bg-black/85 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-      <div className="bg-[#0a0d14] border border-[#273447] max-w-2xl w-full max-h-[92vh] overflow-y-auto text-slate-200">
+    <Modal
+      isOpen={isOpen}
+      onClose={onClose}
+      title="New investigation"
+      size="xl"
+      className="bg-input text-ink"
+    >
         {/* Header */}
-        <div className="p-5 border-b border-[#1e2736] flex items-center justify-between bg-[#0e131d]">
+        <div className="p-5 border-b border-line flex items-center justify-between bg-surface">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 bg-[#161d28] border border-[#2e3e57] text-white flex items-center justify-center text-base">
-              <i className="fa-solid fa-crosshairs text-sky-400"></i>
+            <div className="w-10 h-10 bg-info-surface border border-line-active text-white flex items-center justify-center text-base">
+              <i className="fa-solid fa-crosshairs text-info-ink"></i>
             </div>
             <div>
               <div className="flex items-center gap-2">
                 <h2 className="text-lg font-extrabold text-white tracking-tight font-mono">
                   NEW INVESTIGATION
                 </h2>
-                <span className="text-[10px] font-mono px-2 py-0.5 bg-[#141d2b] text-sky-300 border border-[#203652]">
+                <span className="text-[10px] font-mono px-2 py-0.5 bg-info-surface text-info-ink border border-info-line">
                   {activeJobId ? `ASYNC JOB ${activeJobId.slice(0, 8)}` : "NTRO FORENSIC PIPELINE"}
                 </span>
               </div>
-              <p className="text-xs text-slate-400 mt-0.5 font-mono">
+              <p className="text-xs text-ink-muted mt-0.5 font-mono">
                 Parallel async engine · Live SSE telemetry · Ed25519 tamper-evident custody chain.
               </p>
             </div>
@@ -374,7 +436,7 @@ export const NewInvestigationModal: React.FC<NewInvestigationModalProps> = ({
           {!isAnalyzing && (
             <button
               onClick={onClose}
-              className="w-8 h-8 bg-[#141b26] text-slate-400 hover:text-white border border-[#232f42] flex items-center justify-center transition"
+              className="w-8 h-8 bg-info-surface text-ink-muted hover:text-white border border-line-strong flex items-center justify-center transition"
             >
               <i className="fa-solid fa-xmark text-xs"></i>
             </button>
@@ -385,16 +447,16 @@ export const NewInvestigationModal: React.FC<NewInvestigationModalProps> = ({
           /* Live Progress Inspection Mode */
           <div className="p-6 space-y-6">
             <div className="text-center space-y-2">
-              <div className="inline-flex items-center gap-2 px-3 py-1 bg-[#102438] text-sky-300 border border-[#1e4670] text-xs font-mono font-bold animate-pulse">
-                <span className="w-2 h-2 bg-sky-400"></span>
+              <div className="inline-flex items-center gap-2 px-3 py-1 bg-info-raised text-info-ink border border-info-line-strong text-xs font-mono font-bold animate-pulse">
+                <span className="w-2 h-2 bg-info"></span>
                 PARALLEL FORENSIC PIPELINE STREAMING
               </div>
               <h3 className="text-lg font-bold text-white font-mono">{caseName}</h3>
-              <p className="text-xs text-slate-400 font-mono">Target: {target}</p>
+              <p className="text-xs text-ink-muted font-mono">Target: {target}</p>
             </div>
 
             {/* Step Pipeline List */}
-            <div className="space-y-2 font-mono text-xs bg-[#06080d] p-4 border border-[#1a2230]">
+            <div className="space-y-2 font-mono text-xs bg-sunken p-4 border border-line">
               {ANALYSIS_MODULES.map((mod, idx) => {
                 const state = moduleStates[mod.key] || {
                   status: "pending",
@@ -411,26 +473,26 @@ export const NewInvestigationModal: React.FC<NewInvestigationModalProps> = ({
                     key={mod.key}
                     className={`p-2.5 flex items-center justify-between border transition ${
                       isRunning
-                        ? "bg-[#102133] border-sky-500/70 text-white"
+                        ? "bg-raised border-info-line-strong text-white"
                         : isDone
-                        ? "bg-[#0a1017] border-[#182637] text-slate-300"
+                        ? "bg-card border-line text-ink"
                         : isFailed
-                        ? "bg-[#190d11] border-rose-900/60 text-rose-300"
+                        ? "bg-card border-rose-900/60 text-rose-300"
                         : isSkipped
-                        ? "bg-[#0c0f14] border-[#161e29] text-slate-500"
-                        : "bg-transparent border-transparent text-slate-600 opacity-60"
+                        ? "bg-card border-line-faint text-ink-faint"
+                        : "bg-transparent border-transparent text-ink-faint opacity-60"
                     }`}
                   >
                     <div className="flex items-center gap-3">
-                      <span className="w-6 text-center font-bold text-[11px] text-slate-400">
+                      <span className="w-6 text-center font-bold text-[11px] text-ink-muted">
                         {isDone ? (
-                          <i className="fa-solid fa-check text-emerald-400"></i>
+                          <i className="fa-solid fa-check text-signal-ink"></i>
                         ) : isRunning ? (
-                          <i className="fa-solid fa-gear fa-spin text-sky-400"></i>
+                          <i className="fa-solid fa-gear fa-spin text-info-ink"></i>
                         ) : isFailed ? (
                           <i className="fa-solid fa-triangle-exclamation text-rose-400"></i>
                         ) : isSkipped ? (
-                          <i className="fa-solid fa-forward-step text-slate-500"></i>
+                          <i className="fa-solid fa-forward-step text-ink-faint"></i>
                         ) : (
                           `0${idx + 1}`
                         )}
@@ -439,7 +501,7 @@ export const NewInvestigationModal: React.FC<NewInvestigationModalProps> = ({
                         <div className="font-bold flex items-center gap-2">
                           <span>{mod.name}</span>
                           {isRunning && (
-                            <span className="text-[10px] px-1.5 py-0.2 bg-sky-900/60 text-sky-300 border border-sky-700 animate-pulse">
+                            <span className="text-[10px] px-1.5 py-0.2 bg-info-surface/60 text-info-ink border border-info-line-strong animate-pulse">
                               RUNNING
                             </span>
                           )}
@@ -449,31 +511,31 @@ export const NewInvestigationModal: React.FC<NewInvestigationModalProps> = ({
                             </span>
                           )}
                           {isSkipped && (
-                            <span className="text-[10px] px-1.5 py-0.2 bg-slate-800 text-slate-400 border border-slate-700">
+                            <span className="text-[10px] px-1.5 py-0.2 bg-active text-ink-muted border border-line-strong">
                               SKIPPED
                             </span>
                           )}
                         </div>
-                        <p className="text-[10px] text-slate-400">
+                        <p className="text-[10px] text-ink-muted">
                           {state.summary ? state.summary : mod.desc}
                         </p>
                       </div>
                     </div>
                     <div className="flex items-center gap-3">
-                      <span className="text-[10px] font-mono text-slate-400">
+                      <span className="text-[10px] font-mono text-ink-muted">
                         {state.elapsedSec}
                       </span>
                       <span
                         className={`text-[10px] uppercase font-bold tracking-wider ${
                           isDone
-                            ? "text-emerald-400"
+                            ? "text-signal-ink"
                             : isRunning
-                            ? "text-sky-400"
+                            ? "text-info-ink"
                             : isFailed
                             ? "text-rose-400"
                             : isSkipped
-                            ? "text-slate-500"
-                            : "text-slate-600"
+                            ? "text-ink-faint"
+                            : "text-ink-faint"
                         }`}
                       >
                         {isDone
@@ -492,7 +554,7 @@ export const NewInvestigationModal: React.FC<NewInvestigationModalProps> = ({
               })}
             </div>
 
-            <div className="text-center text-[11px] font-mono text-slate-400">
+            <div className="text-center text-[11px] font-mono text-ink-muted">
               Generating tamper-evident SHA-256 custody blocks and STIX 2.1 entities...
             </div>
           </div>
@@ -501,7 +563,7 @@ export const NewInvestigationModal: React.FC<NewInvestigationModalProps> = ({
           <form onSubmit={handleStartAnalysis} className="p-6 space-y-5">
             {/* Presets Quick Chips */}
             <div>
-              <label className="text-[11px] font-mono uppercase font-bold text-slate-400 block mb-2">
+              <label className="text-[11px] font-mono uppercase font-bold text-ink-muted block mb-2">
                 Quick Preset Targets (Click to Populate):
               </label>
               <div className="grid grid-cols-1 md:grid-cols-3 gap-2.5">
@@ -510,16 +572,16 @@ export const NewInvestigationModal: React.FC<NewInvestigationModalProps> = ({
                     key={p.name}
                     type="button"
                     onClick={() => handleApplyPreset(idx)}
-                    className="p-2.5 text-left bg-[#0e131d] hover:bg-[#141b29] border border-[#202c3e] hover:border-[#354966] transition group"
+                    className="p-2.5 text-left bg-surface hover:bg-info-surface border border-line hover:border-info-line-strong transition group"
                   >
                     <div className="flex items-center justify-between">
-                      <span className="text-[9px] font-mono font-bold px-1.5 py-0.5 bg-[#172130] text-sky-400 border border-[#2a3c56]">
+                      <span className="text-[9px] font-mono font-bold px-1.5 py-0.5 bg-raised text-info-ink border border-info-line">
                         {p.badge}
                       </span>
-                      <i className="fa-solid fa-arrow-right text-[10px] text-slate-500 group-hover:text-sky-400 transition"></i>
+                      <i className="fa-solid fa-arrow-right text-[10px] text-ink-faint group-hover:text-info-ink transition"></i>
                     </div>
                     <div className="font-bold text-xs text-white mt-1.5 truncate">{p.name}</div>
-                    <div className="text-[10px] text-slate-400 font-mono truncate mt-0.5">
+                    <div className="text-[10px] text-ink-muted font-mono truncate mt-0.5">
                       {p.target}
                     </div>
                   </button>
@@ -528,13 +590,13 @@ export const NewInvestigationModal: React.FC<NewInvestigationModalProps> = ({
             </div>
 
             {/* Target Specification */}
-            <div className="space-y-4 pt-2 border-t border-[#18202d]">
+            <div className="space-y-4 pt-2 border-t border-line-faint">
               <div>
-                <label className="text-xs font-mono font-bold text-slate-300 block mb-1">
-                  Investigation Target <span className="text-red-400">*</span>
+                <label className="text-xs font-mono font-bold text-ink block mb-1">
+                  Investigation Target <span className="text-alert-ink">*</span>
                 </label>
-                <div className="flex items-center bg-[#07090e] border border-[#273447] focus-within:border-sky-500">
-                  <span className="px-3 py-2 text-slate-500 text-xs font-mono border-r border-[#202a3a]">
+                <div className="flex items-center bg-sunken border border-line-strong focus-within:border-info-line">
+                  <span className="px-3 py-2 text-ink-faint text-xs font-mono border-r border-line">
                     <i className="fa-solid fa-globe"></i>
                   </span>
                   <input
@@ -542,13 +604,13 @@ export const NewInvestigationModal: React.FC<NewInvestigationModalProps> = ({
                     value={target}
                     onChange={(e) => setTarget(e.target.value)}
                     placeholder="Domain, IPv4, or .onion URL (e.g. http://p4lx7e22kq6dreadmarket.onion)"
-                    className="w-full bg-transparent px-3 py-2 text-xs font-mono text-white outline-none placeholder-slate-600"
+                    className="w-full bg-transparent px-3 py-2 text-xs font-mono text-white placeholder:text-ink-faint"
                     required
                   />
                   <select
                     value={targetType}
                     onChange={(e) => setTargetType(e.target.value)}
-                    className="bg-[#121822] text-[11px] font-mono text-slate-300 px-3 py-2 border-l border-[#202a3a] outline-none cursor-pointer"
+                    className="bg-surface text-[11px] font-mono text-ink px-3 py-2 border-l border-line cursor-pointer"
                   >
                     <option value="onion">Tor Onion (.onion)</option>
                     <option value="ip">IPv4 Host Address</option>
@@ -562,53 +624,53 @@ export const NewInvestigationModal: React.FC<NewInvestigationModalProps> = ({
               {/* Case Details Row */}
               <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                 <div>
-                  <label className="text-xs font-mono text-slate-400 block mb-1">
+                  <label className="text-xs font-mono text-ink-muted block mb-1">
                     Case Name / Reference
                   </label>
                   <input
                     type="text"
                     value={caseName}
                     onChange={(e) => setCaseName(e.target.value)}
-                    className="w-full bg-[#07090e] border border-[#273447] px-3 py-2 text-xs font-mono text-white outline-none focus:border-sky-500"
+                    className="w-full bg-sunken border border-line-strong px-3 py-2 text-xs font-mono text-white focus:border-info-line"
                   />
                 </div>
                 <div>
-                  <label className="text-xs font-mono text-slate-400 block mb-1">
+                  <label className="text-xs font-mono text-ink-muted block mb-1">
                     Evidence ID (Immutable)
                   </label>
                   <input
                     type="text"
                     value={evidenceId}
                     onChange={(e) => setEvidenceId(e.target.value)}
-                    className="w-full bg-[#07090e] border border-[#273447] px-3 py-2 text-xs font-mono text-slate-300 outline-none"
+                    className="w-full bg-sunken border border-line-strong px-3 py-2 text-xs font-mono text-ink"
                   />
                 </div>
                 <div>
-                  <label className="text-xs font-mono text-slate-400 block mb-1">
+                  <label className="text-xs font-mono text-ink-muted block mb-1">
                     Suspect / Persona Lead
                   </label>
                   <input
                     type="text"
                     value={actorName}
                     onChange={(e) => setActorName(e.target.value)}
-                    className="w-full bg-[#07090e] border border-[#273447] px-3 py-2 text-xs font-mono text-white outline-none focus:border-sky-500"
+                    className="w-full bg-sunken border border-line-strong px-3 py-2 text-xs font-mono text-white focus:border-info-line"
                   />
                 </div>
               </div>
             </div>
 
             {/* Analysis Mode & Provenance Guarantee */}
-            <div className="p-3 bg-[#0d131d] border border-[#1e293a] space-y-2">
+            <div className="p-3 bg-surface border border-line space-y-2">
               <div className="flex justify-between items-center text-xs font-mono">
-                <span className="font-bold text-slate-300">Execution Mode &amp; Provenance Tagging</span>
-                <span className="text-[10px] text-sky-400">Strict Non-Deception Rule</span>
+                <span className="font-bold text-ink">Execution Mode &amp; Provenance Tagging</span>
+                <span className="text-[10px] text-info-ink">Strict Non-Deception Rule</span>
               </div>
               <div className="grid grid-cols-3 gap-2 text-xs font-mono">
                 <label
                   className={`p-2 border cursor-pointer text-center transition ${
                     mode === "auto"
-                      ? "bg-[#152335] border-sky-500 text-white font-bold"
-                      : "bg-[#090d14] border-[#1d2737] text-slate-400"
+                      ? "bg-info-raised border-info-line text-white font-bold"
+                      : "bg-input border-line text-ink-muted"
                   }`}
                 >
                   <input
@@ -624,8 +686,8 @@ export const NewInvestigationModal: React.FC<NewInvestigationModalProps> = ({
                 <label
                   className={`p-2 border cursor-pointer text-center transition ${
                     mode === "live"
-                      ? "bg-[#152335] border-sky-500 text-white font-bold"
-                      : "bg-[#090d14] border-[#1d2737] text-slate-400"
+                      ? "bg-info-raised border-info-line text-white font-bold"
+                      : "bg-input border-line text-ink-muted"
                   }`}
                 >
                   <input
@@ -641,8 +703,8 @@ export const NewInvestigationModal: React.FC<NewInvestigationModalProps> = ({
                 <label
                   className={`p-2 border cursor-pointer text-center transition ${
                     mode === "demo"
-                      ? "bg-[#152335] border-sky-500 text-white font-bold"
-                      : "bg-[#090d14] border-[#1d2737] text-slate-400"
+                      ? "bg-info-raised border-info-line text-white font-bold"
+                      : "bg-input border-line text-ink-muted"
                   }`}
                 >
                   <input
@@ -656,12 +718,12 @@ export const NewInvestigationModal: React.FC<NewInvestigationModalProps> = ({
                   Demo Benchmark
                 </label>
               </div>
-              <p className="text-[10px] text-slate-400 font-mono leading-relaxed">
-                <i className="fa-solid fa-shield-halved text-sky-400 mr-1"></i>
+              <p className="text-[10px] text-ink-muted font-mono leading-relaxed">
+                <i className="fa-solid fa-shield-halved text-info-ink mr-1"></i>
                 AETHER does not simulate live intelligence: Results are explicitly tagged{" "}
-                <span className="text-emerald-400 font-bold">LIVE SOURCE</span>,{" "}
-                <span className="text-amber-400 font-bold">DEMO DATA</span>, or{" "}
-                <span className="text-slate-400 font-bold">SOURCE UNAVAILABLE</span>. No single
+                <span className="text-signal-ink font-bold">LIVE SOURCE</span>,{" "}
+                <span className="text-warn-ink font-bold">DEMO DATA</span>, or{" "}
+                <span className="text-ink-muted font-bold">SOURCE UNAVAILABLE</span>. No single
                 indicator proves actor identity.
               </p>
             </div>
@@ -671,16 +733,16 @@ export const NewInvestigationModal: React.FC<NewInvestigationModalProps> = ({
               <button
                 type="button"
                 onClick={() => setShowAdvanced(!showAdvanced)}
-                className="text-xs font-mono font-bold text-slate-400 hover:text-slate-200 flex items-center gap-2 py-1 transition"
+                className="text-xs font-mono font-bold text-ink-muted hover:text-ink flex items-center gap-2 py-1 transition"
               >
                 <i className={`fa-solid fa-chevron-${showAdvanced ? "down" : "right"} text-[10px]`}></i>
                 {showAdvanced ? "Hide Advanced Forensic Leads" : "Provide Known Forensic Leads (PGP / BTC / Text Sample)"}
               </button>
 
               {showAdvanced && (
-                <div className="mt-3 p-3.5 bg-[#070a10] border border-[#1e2736] space-y-3 font-mono text-xs">
+                <div className="mt-3 p-3.5 bg-input border border-line space-y-3 font-mono text-xs">
                   <div>
-                    <label className="text-[11px] text-slate-400 block mb-1">
+                    <label className="text-[11px] text-ink-muted block mb-1">
                       Known PGP Fingerprint (40-char hex)
                     </label>
                     <input
@@ -688,12 +750,12 @@ export const NewInvestigationModal: React.FC<NewInvestigationModalProps> = ({
                       value={knownPgp}
                       onChange={(e) => setKnownPgp(e.target.value)}
                       placeholder="4D9E 27BC 918A 4F02 C731 09AE 2C5B 88E1 40FA 7D3C"
-                      className="w-full bg-[#0d121b] border border-[#222f42] px-3 py-1.5 text-xs text-white outline-none"
+                      className="w-full bg-card border border-line-strong px-3 py-1.5 text-xs text-white"
                     />
                   </div>
 
                   <div>
-                    <label className="text-[11px] text-slate-400 block mb-1">
+                    <label className="text-[11px] text-ink-muted block mb-1">
                       Known Bitcoin Root Address (P2PKH / Bech32)
                     </label>
                     <input
@@ -701,19 +763,19 @@ export const NewInvestigationModal: React.FC<NewInvestigationModalProps> = ({
                       value={knownBtc}
                       onChange={(e) => setKnownBtc(e.target.value)}
                       placeholder="1A1zP1eP5QGefi2DMPTfTL5SLmv7DivfNa or bc1qa5wk..."
-                      className="w-full bg-[#0d121b] border border-[#222f42] px-3 py-1.5 text-xs text-white outline-none"
+                      className="w-full bg-card border border-line-strong px-3 py-1.5 text-xs text-white"
                     />
                   </div>
 
                   <div>
-                    <label className="text-[11px] text-slate-400 block mb-1">
+                    <label className="text-[11px] text-ink-muted block mb-1">
                       Suspect Writing Sample (for Stylometry NLP Cosine Engine)
                     </label>
                     <textarea
                       value={textSample}
                       onChange={(e) => setTextSample(e.target.value)}
                       rows={2}
-                      className="w-full bg-[#0d121b] border border-[#222f42] p-2 text-xs text-white outline-none resize-none"
+                      className="w-full bg-card border border-line-strong p-2 text-xs text-white resize-none"
                     />
                   </div>
                 </div>
@@ -721,17 +783,17 @@ export const NewInvestigationModal: React.FC<NewInvestigationModalProps> = ({
             </div>
 
             {/* Action Buttons */}
-            <div className="flex items-center justify-end gap-3 pt-3 border-t border-[#18202d]">
+            <div className="flex items-center justify-end gap-3 pt-3 border-t border-line-faint">
               <button
                 type="button"
                 onClick={onClose}
-                className="px-4 py-2.5 bg-[#121721] hover:bg-[#18202d] text-slate-300 text-xs font-mono font-semibold transition border border-[#232f42]"
+                className="px-4 py-2.5 bg-surface hover:bg-raised text-ink text-xs font-mono font-semibold transition border border-line-strong"
               >
                 Cancel
               </button>
               <button
                 type="submit"
-                className="px-6 py-2.5 bg-gradient-to-r from-sky-600 to-blue-700 hover:from-sky-500 hover:to-blue-600 text-white text-xs font-mono font-bold tracking-wider transition border border-sky-400/50 flex items-center gap-2 shadow-[0_0_15px_rgba(56,189,248,0.25)]"
+                className="px-6 py-2.5 bg-active hover:bg-info-hover text-white text-xs font-mono font-bold tracking-wider transition border border-info-line-strong flex items-center gap-2 shadow-[0_0_15px_rgba(56,189,248,0.25)]"
               >
                 <i className="fa-solid fa-play text-[10px]"></i>
                 START ANALYSIS
@@ -739,7 +801,6 @@ export const NewInvestigationModal: React.FC<NewInvestigationModalProps> = ({
             </div>
           </form>
         )}
-      </div>
-    </div>
+    </Modal>
   );
 };

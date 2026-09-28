@@ -30,7 +30,7 @@ type ForceGraphComponent = (
 const ForceGraph3D = dynamic(() => import("react-force-graph-3d"), {
   ssr: false,
   loading: () => (
-    <div className="w-full h-full flex items-center justify-center text-[11px] font-mono text-slate-500">
+    <div className="w-full h-full flex items-center justify-center text-[11px] font-mono text-ink-faint">
       INITIALIZING WEBGL FORCE GRAPH…
     </div>
   ),
@@ -319,15 +319,27 @@ export const KnowledgeGraphView: React.FC<KnowledgeGraphViewProps> = ({
 
     return rawNodes.map((n) => {
       const mappedType = typeMap[n.type] || "darknet";
-      const nodeColor = (n.metadata && n.metadata.color) || colorMap[mappedType] || "#38bdf8";
+      const meta = n.metadata ?? {};
+      /*
+       * Node metadata is typed `Record<string, unknown>` because its shape
+       * varies per STIX object type. Previously it was `any`, so a numeric
+       * confidence arriving as a string was passed straight into a
+       * number-typed field and only failed at render.
+       */
+      const rawColor = typeof meta.color === "string" ? meta.color : null;
+      const nodeColor = rawColor || colorMap[mappedType] || "#38bdf8";
       const hexColor = parseInt(nodeColor.replace("#", ""), 16) || 0x38bdf8;
+      const subtext =
+        typeof meta.subtext === "string" ? meta.subtext : `${mappedType.toUpperCase()} node`;
+      const confidence =
+        typeof meta.confidence === "string" ? meta.confidence : "95.0%";
 
       return {
         id: n.id,
         label: n.label,
         type: mappedType,
-        subtext: (n.metadata && n.metadata.subtext) || `${mappedType.toUpperCase()} Node`,
-        confidence: (n.metadata && n.metadata.confidence) || "95.0%",
+        subtext,
+        confidence,
         color: nodeColor,
         hexColor,
         details: {
@@ -474,17 +486,17 @@ export const KnowledgeGraphView: React.FC<KnowledgeGraphViewProps> = ({
       <div className="matte-card p-5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
         <div>
           <div className="flex items-center gap-2">
-            <span className="text-xs font-mono font-bold px-2 py-0.5 bg-[#141a24] text-slate-300 border border-[#263245]">
+            <span className="text-xs font-mono font-bold px-2 py-0.5 bg-info-surface text-ink border border-line-strong">
               STAGE 02
             </span>
             <h2 className="text-xl font-bold text-white tracking-tight flex items-center gap-2">
               <span>3D Forensic Knowledge Graph</span>
-              <span className="text-xs font-mono font-normal px-2 py-0.5 bg-[#162233] text-cyan-400 border border-[#253954]">
+              <span className="text-xs font-mono font-normal px-2 py-0.5 bg-raised text-info-ink border border-info-line">
                 THREE.JS WebGL
               </span>
             </h2>
           </div>
-          <p className="text-xs text-slate-400 mt-1">
+          <p className="text-xs text-ink-muted mt-1">
             Spatial 3D threat actor attribution matrix with real-time orbit controls, raycasting, and pulse conduits.
           </p>
         </div>
@@ -497,8 +509,8 @@ export const KnowledgeGraphView: React.FC<KnowledgeGraphViewProps> = ({
               onClick={() => setFilterType(t)}
               className={`px-3 py-1 font-mono uppercase text-[11px] transition border ${
                 filterType === t
-                  ? "bg-[#1e2736] text-white border-[#3d4c66] font-bold"
-                  : "bg-[#10141d] text-slate-400 hover:text-slate-200 border-[#222b3a]"
+                  ? "bg-active text-white border-line-active font-bold"
+                  : "bg-surface text-ink-muted hover:text-ink border-line"
               }`}
             >
               {t}
@@ -506,7 +518,7 @@ export const KnowledgeGraphView: React.FC<KnowledgeGraphViewProps> = ({
           ))}
           <button
             onClick={onOpenEvidence}
-            className="px-3 py-1 bg-[#162338] text-blue-300 border border-[#2d436b] hover:bg-[#1f304d] transition text-[11px] font-bold flex items-center gap-1.5"
+            className="px-3 py-1 bg-info-raised text-info-ink border border-info-line-strong hover:bg-info-hover transition text-[11px] font-bold flex items-center gap-1.5"
           >
             <i className="fa-solid fa-plus text-[10px]"></i> Add Anchor
           </button>
@@ -518,13 +530,13 @@ export const KnowledgeGraphView: React.FC<KnowledgeGraphViewProps> = ({
         {/* Three.js 3D WebGL Canvas (2 Columns) */}
         <div className="lg:col-span-2 matte-card p-4 relative overflow-hidden flex flex-col">
           {/* HUD Top Bar */}
-          <div className="flex justify-between items-center pb-3 border-b border-[#1e2533] text-xs font-mono">
+          <div className="flex justify-between items-center pb-3 border-b border-line text-xs font-mono">
             <div className="flex items-center gap-3">
-              <span className="text-slate-400">
+              <span className="text-ink-muted">
                 Spatial Engine // 7 Nodes &bull; 8 Conduits
               </span>
               {hoveredNode && (
-                <span className="text-cyan-300 hidden sm:inline">
+                <span className="text-info-ink hidden sm:inline">
                   &bull; Hover: <strong className="text-white">{hoveredNode.label}</strong>
                 </span>
               )}
@@ -535,8 +547,8 @@ export const KnowledgeGraphView: React.FC<KnowledgeGraphViewProps> = ({
                 onClick={() => setAutoRotate((prev) => !prev)}
                 className={`px-2.5 py-1 text-[10px] font-bold transition border ${
                   autoRotate
-                    ? "bg-[#16253b] text-cyan-300 border-[#2d466b]"
-                    : "bg-[#10141d] text-slate-400 border-[#222b3a]"
+                    ? "bg-info-raised text-info-ink border-info-line-strong"
+                    : "bg-surface text-ink-muted border-line"
                 }`}
                 title="Toggle ambient 3D orbit rotation"
               >
@@ -544,7 +556,7 @@ export const KnowledgeGraphView: React.FC<KnowledgeGraphViewProps> = ({
               </button>
               <button
                 onClick={handleResetCamera}
-                className="px-2.5 py-1 bg-[#10141d] hover:bg-[#1a212e] text-slate-300 border border-[#222b3a] text-[10px] font-bold transition"
+                className="px-2.5 py-1 bg-surface hover:bg-raised text-ink border border-line text-[10px] font-bold transition"
                 title="Reset 3D camera to default vantage"
               >
                 <i className="fa-solid fa-crosshairs text-[10px] mr-1"></i> Center
@@ -555,7 +567,7 @@ export const KnowledgeGraphView: React.FC<KnowledgeGraphViewProps> = ({
           {/* Canvas Mount Container */}
           <div
             ref={mountRef}
-            className="relative w-full h-[520px] bg-[#000000] border border-[#161f2e] mt-3 overflow-hidden select-none"
+            className="relative w-full h-[520px] bg-canvas border border-line-faint mt-3 overflow-hidden select-none"
           >
             {dimensions.width > 0 && (
               <ForceGraph3D
@@ -595,27 +607,27 @@ export const KnowledgeGraphView: React.FC<KnowledgeGraphViewProps> = ({
             )}
 
             {/* Legend: the colour encoding a reviewer needs to read the graph */}
-            <div className="absolute top-3 right-3 bg-[#0a0e17]/85 border border-[#1f293d] px-3 py-2 text-[10px] font-mono pointer-events-none z-10 space-y-1">
+            <div className="absolute top-3 right-3 bg-card/85 border border-line px-3 py-2 text-[10px] font-mono pointer-events-none z-10 space-y-1">
               <div className="flex items-center gap-2">
-                <span className="inline-block w-4 h-0.5 bg-sky-400"></span>
-                <span className="text-slate-300">Deterministic proof</span>
+                <span className="inline-block w-4 h-0.5 bg-info"></span>
+                <span className="text-ink">Deterministic proof</span>
               </div>
               <div className="flex items-center gap-2">
                 <span className="inline-block w-4 h-0.5 bg-rose-400"></span>
-                <span className="text-slate-300">Probabilistic lead</span>
+                <span className="text-ink">Probabilistic lead</span>
               </div>
               <div className="flex items-center gap-2">
                 <span className="inline-block w-2.5 h-2.5 bg-rose-400"></span>
-                <span className="text-slate-300">Threat actor</span>
+                <span className="text-ink">Threat actor</span>
               </div>
             </div>
 
             {/* Quick 3D Interaction Instructions Overlay */}
-            <div className="absolute bottom-3 left-3 bg-[#0a0e17]/85 border border-[#1f293d] px-3 py-1.5 text-[10px] font-mono text-slate-400 pointer-events-none z-10 flex items-center gap-3">
-              <span><strong className="text-slate-200">Left Drag:</strong> Rotate 360°</span>
-              <span><strong className="text-slate-200">Scroll:</strong> Zoom</span>
-              <span><strong className="text-slate-200">Right Drag:</strong> Pan</span>
-              <span><strong className="text-slate-200">Click Node:</strong> Lock Focus</span>
+            <div className="absolute bottom-3 left-3 bg-card/85 border border-line px-3 py-1.5 text-[10px] font-mono text-ink-muted pointer-events-none z-10 flex items-center gap-3">
+              <span><strong className="text-ink">Left Drag:</strong> Rotate 360°</span>
+              <span><strong className="text-ink">Scroll:</strong> Zoom</span>
+              <span><strong className="text-ink">Right Drag:</strong> Pan</span>
+              <span><strong className="text-ink">Click Node:</strong> Lock Focus</span>
             </div>
           </div>
         </div>
@@ -623,7 +635,7 @@ export const KnowledgeGraphView: React.FC<KnowledgeGraphViewProps> = ({
         {/* Node Inspector Panel (1 Column) */}
         <div className="matte-card p-5 flex flex-col justify-between">
           <div>
-            <div className="flex justify-between items-center pb-3 border-b border-[#1e2533]">
+            <div className="flex justify-between items-center pb-3 border-b border-line">
               <h3 className="text-sm font-bold text-white uppercase tracking-wider font-mono">
                 Entity Inspector
               </h3>
@@ -640,11 +652,11 @@ export const KnowledgeGraphView: React.FC<KnowledgeGraphViewProps> = ({
             </div>
 
             <div className="mt-4">
-              <span className="text-[10px] font-mono text-slate-400 uppercase tracking-widest block">
+              <span className="text-[10px] font-mono text-ink-muted uppercase tracking-widest block">
                 Target Entity
               </span>
               <h4 className="text-lg font-bold text-white mt-0.5">{selectedNode.label}</h4>
-              <p className="text-xs text-slate-400 font-mono mt-0.5">{selectedNode.subtext}</p>
+              <p className="text-xs text-ink-muted font-mono mt-0.5">{selectedNode.subtext}</p>
             </div>
 
             {/* Attributes Table */}
@@ -652,20 +664,20 @@ export const KnowledgeGraphView: React.FC<KnowledgeGraphViewProps> = ({
               {Object.entries(selectedNode.details).map(([key, val]) => (
                 <div
                   key={key}
-                  className="bg-[#090c12] p-2.5 border border-[#1a212d] flex flex-col gap-1"
+                  className="bg-input p-2.5 border border-line flex flex-col gap-1"
                 >
-                  <span className="text-[10px] text-slate-400 uppercase">{key}</span>
-                  <span className="text-slate-200 break-all text-[11px] font-semibold">{val}</span>
+                  <span className="text-[10px] text-ink-muted uppercase">{key}</span>
+                  <span className="text-ink break-all text-[11px] font-semibold">{val}</span>
                 </div>
               ))}
             </div>
           </div>
 
           {/* Bottom Actions */}
-          <div className="mt-6 pt-4 border-t border-[#1e2533] space-y-2">
+          <div className="mt-6 pt-4 border-t border-line space-y-2">
             <button
               onClick={handleCopyCypher}
-              className="w-full py-2.5 bg-[#1e2736] hover:bg-[#283448] text-white text-xs font-bold font-mono transition flex items-center justify-center gap-2 border border-[#37455d]"
+              className="w-full py-2.5 bg-active hover:bg-info-hover text-white text-xs font-bold font-mono transition flex items-center justify-center gap-2 border border-line-active"
             >
               <i className="fa-solid fa-code text-xs"></i> Copy Neo4j Cypher Query
             </button>
@@ -676,7 +688,7 @@ export const KnowledgeGraphView: React.FC<KnowledgeGraphViewProps> = ({
                   `Timeline pivoted to ${selectedNode.label}. Correlated across all STIX bundles.`
                 )
               }
-              className="w-full py-2 bg-[#121721] hover:bg-[#19212d] text-slate-300 border border-[#232d3d] text-xs font-semibold font-mono transition"
+              className="w-full py-2 bg-surface hover:bg-raised text-ink border border-line-strong text-xs font-semibold font-mono transition"
             >
               Pivot Timeline to Entity
             </button>

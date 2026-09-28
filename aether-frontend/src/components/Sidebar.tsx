@@ -13,6 +13,16 @@ interface SidebarProps {
   onShowToast: (title: string, message: string) => void;
 }
 
+interface RailItem {
+  key: string;
+  icon: string;
+  label: string;
+  hint: string;
+  onClick: () => void;
+  /** Renders in its own group, below the primary navigation. */
+  footer?: boolean;
+}
+
 export const Sidebar: React.FC<SidebarProps> = ({
   activeTab,
   onSelectTab,
@@ -23,189 +33,164 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onVerifyShield,
   onShowToast,
 }) => {
-  const isOverview = activeTab === "overview";
-  const isGraph = activeTab === "graph";
-  const isCircadian = activeTab === "circadian";
-  const isStylo = activeTab === "stylometry";
-  const isSuspects = activeTab === "suspects";
-  const isCustody = activeTab === "custody";
-  const isConfig = activeTab === "config";
-  const isShield = activeTab === "shield";
+  const primary: RailItem[] = [
+    {
+      key: "overview",
+      icon: "fa-shapes",
+      label: "Overview",
+      hint: "Recon telemetry & indicators",
+      onClick: () => {
+        onSelectTab("overview");
+        onShowToast("Overview", "Recon telemetry & forensic indicators.");
+      },
+    },
+    {
+      key: "graph",
+      icon: "fa-diagram-project",
+      label: "Knowledge graph",
+      hint: "STIX 2.1 entity graph",
+      onClick: () => {
+        onSelectTab("graph");
+        onShowToast("Knowledge graph", "Interactive STIX 2.1 entity graph.");
+      },
+    },
+    {
+      key: "circadian",
+      icon: "fa-chart-simple",
+      label: "Diurnal engine",
+      hint: "UTC posting distribution",
+      onClick: onScrollDiurnal,
+    },
+    {
+      key: "stylometry",
+      icon: "fa-fingerprint",
+      label: "Stylometry lab",
+      hint: "Compare two documents",
+      onClick: onOpenStylometry,
+    },
+    {
+      key: "suspects",
+      icon: "fa-users-viewfinder",
+      label: "Target dossier",
+      hint: "Suspect profile sheet",
+      onClick: onOpenDossier,
+    },
+    {
+      key: "custody",
+      icon: "fa-clock",
+      label: "Custody ledger",
+      hint: "Tamper-evident chain",
+      onClick: () => {
+        onSelectTab("custody");
+        onShowToast("Custody ledger", "Tamper-evident custody chain.");
+      },
+    },
+  ];
 
-  return (
-    <aside className="flex md:flex-col items-center justify-between bg-[#0d1017] py-4 px-3 md:py-6 md:px-3.5 border border-[#1e2533] shrink-0 self-center md:self-stretch z-20">
-      {/* Logo & Primary Nav */}
-      <div className="flex flex-col items-center gap-6">
-        {/* Icon 1: Overview (Stage 01) */}
+  const footer: RailItem[] = [
+    {
+      key: "config",
+      icon: "fa-sliders",
+      label: "Engine config",
+      hint: "Tor & backend settings",
+      onClick: onOpenConfig,
+      footer: true,
+    },
+    {
+      key: "shield",
+      icon: "fa-shield-halved",
+      label: "Verify chain",
+      hint: "Check ledger integrity",
+      onClick: onVerifyShield,
+      footer: true,
+    },
+  ];
+
+  const renderItem = (item: RailItem) => {
+    const isActive = activeTab === item.key;
+    return (
+      <li key={item.key} className="flex justify-center shrink-0">
         <button
-          onClick={() => {
-            onSelectTab("overview");
-            onShowToast(
-              "Stage 01: Overview Active",
-              "Viewing dark web recon telemetry & forensic indicators."
-            );
-          }}
-          className={`w-11 h-11 flex items-center justify-center transition group relative ${
-            isOverview
-              ? "bg-[#1e2736] text-white border border-[#37455d] shadow-[0_0_12px_rgba(55,69,93,0.35)]"
-              : "bg-[#161d28] text-slate-400 hover:text-slate-200 border border-[#273447] hover:bg-[#1e2736]"
+          type="button"
+          onClick={item.onClick}
+          aria-current={isActive ? "page" : undefined}
+          aria-label={item.label}
+          className={`group relative w-11 h-11 flex items-center justify-center transition ${
+            isActive
+              ? "bg-active text-ink border border-line-active shadow-[0_0_0_1px_var(--color-line-active)]"
+              : "bg-info-surface text-ink-muted hover:text-ink border border-transparent hover:border-line-strong hover:bg-raised"
           }`}
-          title="Stage 01: Overview"
         >
-          <i className="fa-solid fa-shapes text-base"></i>
-          <span className="absolute left-16 bg-[#12161f] text-slate-200 border border-[#232c3d] text-xs px-2.5 py-1 opacity-0 pointer-events-none group-hover:opacity-100 transition whitespace-nowrap z-50 font-mono">
-            Overview (Stage 01)
+          <i className={`fa-solid ${item.icon} text-sm`} aria-hidden="true" />
+          {/*
+            The tooltip is decorative: the button already carries an
+            aria-label, so this is hidden from assistive tech to avoid
+            announcing the label twice. It opens on hover and on keyboard
+            focus, and is anchored so it cannot overflow a narrow viewport.
+          */}
+          <span
+            aria-hidden="true"
+            className="hidden md:block absolute left-full top-1/2 -translate-y-1/2 ml-3 bg-overlay text-ink-muted border border-line-strong text-xs px-2.5 py-1.5 opacity-0 pointer-events-none translate-x-[-4px] group-hover:opacity-100 group-hover:translate-x-0 group-focus-visible:opacity-100 group-focus-visible:translate-x-0 transition-all duration-150 z-50 font-mono whitespace-nowrap"
+          >
+            {item.label}
+            <span className="block text-ink-faint text-[10px]">{item.hint}</span>
           </span>
         </button>
+      </li>
+    );
+  };
 
-        {/* Primary Nav Icons */}
-        <nav className="flex md:flex-col items-center gap-3">
-          {/* Icon 2: STIX 2.1 Graph (Stage 02) */}
-          <button
-            onClick={() => {
-              onSelectTab("graph");
-              onShowToast(
-                "Stage 02: STIX 2.1 Graph",
-                "Loading interactive entity knowledge graph..."
-              );
-            }}
-            className={`w-10 h-10 flex items-center justify-center transition relative group ${
-              isGraph
-                ? "bg-[#1e2736] text-white border border-[#37455d] shadow-[0_0_12px_rgba(55,69,93,0.35)]"
-                : "text-slate-400 hover:text-slate-200 hover:bg-[#161d28] border border-transparent hover:border-[#273447]"
-            }`}
-            title="Stage 02: STIX 2.1 Graph"
-          >
-            <i className="fa-solid fa-diagram-project text-sm"></i>
-            <span className="absolute left-16 bg-[#12161f] text-slate-200 border border-[#232c3d] text-xs px-2 py-1 opacity-0 pointer-events-none group-hover:opacity-100 transition whitespace-nowrap z-50 font-mono">
-              STIX 2.1 Graph (Stage 02)
-            </span>
-          </button>
+  return (
+    <aside className="flex md:flex-col items-center justify-between bg-card py-3 px-2 md:py-5 md:px-2 border border-line shrink-0 self-center md:self-stretch z-20 max-w-full">
+      {/* Mark */}
+      <div className="flex md:flex-col items-center gap-4 min-w-0">
+        <div
+          className="w-11 h-11 flex items-center justify-center text-ink-muted bg-surface border border-line-strong shrink-0"
+          aria-hidden="true"
+        >
+          <i className="fa-solid fa-crosshairs text-base"></i>
+        </div>
 
-          {/* Icon 3: Circadian Timezone Engine */}
-          <button
-            onClick={onScrollDiurnal}
-            className={`w-10 h-10 flex items-center justify-center transition relative group ${
-              isCircadian
-                ? "bg-[#1e2736] text-white border border-[#37455d] shadow-[0_0_12px_rgba(55,69,93,0.35)]"
-                : "text-slate-400 hover:text-slate-200 hover:bg-[#161d28] border border-transparent hover:border-[#273447]"
-            }`}
-            title="Circadian Timezone Engine"
-          >
-            <i className="fa-solid fa-chart-simple text-sm"></i>
-            <span className="absolute left-16 bg-[#12161f] text-slate-200 border border-[#232c3d] text-xs px-2 py-1 opacity-0 pointer-events-none group-hover:opacity-100 transition whitespace-nowrap z-50 font-mono">
-              Diurnal Circadian Engine
-            </span>
-          </button>
-
-          {/* Icon 4: AI Stylometry Lab */}
-          <button
-            onClick={onOpenStylometry}
-            className={`w-10 h-10 flex items-center justify-center transition relative group ${
-              isStylo
-                ? "bg-[#1e2736] text-white border border-[#37455d] shadow-[0_0_12px_rgba(55,69,93,0.35)]"
-                : "text-slate-400 hover:text-slate-200 hover:bg-[#161d28] border border-transparent hover:border-[#273447]"
-            }`}
-            title="AI Stylometry Lab"
-          >
-            <i className="fa-solid fa-fingerprint text-sm"></i>
-            <span className="absolute left-16 bg-[#12161f] text-slate-200 border border-[#232c3d] text-xs px-2 py-1 opacity-0 pointer-events-none group-hover:opacity-100 transition whitespace-nowrap z-50 font-mono">
-              AI Stylometry Lab
-            </span>
-          </button>
-
-          {/* Icon 5: Threat Actors Dossier */}
-          <button
-            onClick={onOpenDossier}
-            className={`w-10 h-10 flex items-center justify-center transition relative group ${
-              isSuspects
-                ? "bg-[#1e2736] text-white border border-[#37455d] shadow-[0_0_12px_rgba(55,69,93,0.35)]"
-                : "text-slate-400 hover:text-slate-200 hover:bg-[#161d28] border border-transparent hover:border-[#273447]"
-            }`}
-            title="Target Suspect Dossier"
-          >
-            <i className="fa-solid fa-users-viewfinder text-sm"></i>
-            <span className="absolute left-16 bg-[#12161f] text-slate-200 border border-[#232c3d] text-xs px-2 py-1 opacity-0 pointer-events-none group-hover:opacity-100 transition whitespace-nowrap z-50 font-mono">
-              Target Suspect Dossier
-            </span>
-          </button>
-
-          {/* Icon 6: Chain of Custody Ledger (Stage 03) */}
-          <button
-            onClick={() => {
-              onSelectTab("custody");
-              onShowToast(
-                "Stage 03: Custody Ledger",
-                "Displaying tamper-evident SHA-256 custody chain."
-              );
-            }}
-            className={`w-10 h-10 flex items-center justify-center transition relative group ${
-              isCustody
-                ? "bg-[#1e2736] text-white border border-[#37455d] shadow-[0_0_12px_rgba(55,69,93,0.35)]"
-                : "text-slate-400 hover:text-slate-200 hover:bg-[#161d28] border border-transparent hover:border-[#273447]"
-            }`}
-            title="Stage 03: Chain of Custody"
-          >
-            <i className="fa-regular fa-clock text-sm"></i>
-            <span className="absolute left-16 bg-[#12161f] text-slate-200 border border-[#232c3d] text-xs px-2 py-1 opacity-0 pointer-events-none group-hover:opacity-100 transition whitespace-nowrap z-50 font-mono">
-              Custody Ledger (Stage 03)
-            </span>
-          </button>
+        {/*
+          On a phone the rail is nine 44px targets plus gaps -- 444px in a
+          390px viewport -- so it scrolls sideways rather than pushing the
+          whole page into a horizontal scroll or wrapping into a tall block
+          that pushes the case data off screen.
+        */}
+        <nav aria-label="Investigation views" className="w-full md:w-auto overflow-x-auto md:overflow-visible scrollbar-thin">
+          <ul className="flex md:flex-col items-center gap-1.5 list-none p-0 m-0 w-max md:w-auto">
+            {primary.map(renderItem)}
+          </ul>
         </nav>
       </div>
 
-      {/* Bottom Settings & Profile */}
-      <div className="flex md:flex-col items-center gap-3">
-        {/* Icon 7: Engine Config */}
-        <button
-          onClick={onOpenConfig}
-          className={`w-10 h-10 flex items-center justify-center transition relative group ${
-            isConfig
-              ? "bg-[#1e2736] text-white border border-[#37455d] shadow-[0_0_12px_rgba(55,69,93,0.35)]"
-              : "text-slate-400 hover:text-slate-200 hover:bg-[#161d28] border border-transparent hover:border-[#273447]"
-          }`}
-          title="Engine Configuration"
-        >
-          <i className="fa-solid fa-sliders text-sm"></i>
-          <span className="absolute left-16 bg-[#12161f] text-slate-200 border border-[#232c3d] text-xs px-2 py-1 opacity-0 pointer-events-none group-hover:opacity-100 transition whitespace-nowrap z-50 font-mono">
-            Engine Config (Tor/FastAPI)
-          </span>
-        </button>
+      <div className="flex md:flex-col items-center gap-1.5">
+        <nav aria-label="Tools and integrity" className="w-full md:w-auto overflow-x-auto md:overflow-visible scrollbar-thin">
+          <ul className="flex md:flex-col items-center gap-1.5 list-none p-0 m-0 w-max md:w-auto">
+            {footer.map(renderItem)}
+          </ul>
+        </nav>
 
-        {/* Icon 8: Security & Custody Verification */}
+        {/*
+          This was a stock portrait from Unsplash standing in for the logged-in
+          officer. It sent a request to a third party on every load, and on a
+          legal workbench an unrelated person's face next to a clearance badge
+          is worse than no face at all. A monogram carries the same
+          affordance without either problem.
+        */}
         <button
-          onClick={onVerifyShield}
-          className={`w-10 h-10 flex items-center justify-center transition relative group ${
-            isShield
-              ? "bg-[#1e2736] text-white border border-[#37455d] shadow-[0_0_12px_rgba(55,69,93,0.35)]"
-              : "text-slate-400 hover:text-slate-200 hover:bg-[#161d28] border border-transparent hover:border-[#273447]"
-          }`}
-          title="Verify SHA-256 Ledger Integrity"
-        >
-          <i className="fa-solid fa-shield-halved text-sm"></i>
-          <span className="absolute left-16 bg-[#12161f] text-slate-200 border border-[#232c3d] text-xs px-2 py-1 opacity-0 pointer-events-none group-hover:opacity-100 transition whitespace-nowrap z-50 font-mono">
-            Verify SHA-256 Ledger
-          </span>
-        </button>
-
-        {/* Officer Avatar */}
-        <button
+          type="button"
           onClick={() =>
             onShowToast(
-              "Officer Credentials",
-              "Lead Cyber Forensics Officer (ID: NTRO-26151-INV01). Clearance: TOP SECRET."
+              "Officer credentials",
+              "Lead Cyber Forensics Officer (NTRO-26151-INV01). Clearance: top secret."
             )
           }
-          className="w-10 h-10 overflow-hidden border border-[#273447] hover:border-[#37455d] mt-2 bg-[#12161f] transition relative group"
-          title="Lead Investigator Profile"
+          aria-label="Lead investigator profile"
+          className="w-11 h-11 border border-line-strong hover:border-line-active bg-surface hover:bg-raised mt-1 flex items-center justify-center transition shrink-0"
         >
-          <img
-            src="https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=120&auto=format&fit=crop&q=80"
-            alt="Lead Investigator"
-            className="w-full h-full object-cover grayscale contrast-125"
-          />
-          <span className="absolute left-16 bg-[#12161f] text-slate-200 border border-[#232c3d] text-xs px-2 py-1 opacity-0 pointer-events-none group-hover:opacity-100 transition whitespace-nowrap z-50 font-mono">
-            Lead Investigator
+          <span className="font-mono text-[11px] font-bold text-ink-dim" aria-hidden="true">
+            LI
           </span>
         </button>
       </div>
