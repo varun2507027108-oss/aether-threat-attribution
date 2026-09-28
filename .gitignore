@@ -25,6 +25,12 @@ venv/
 *.db
 *.sqlite3
 
+# Real .env files hold API keys, DB passwords, and Ed25519 private keys.
+# Only the committed .env.example templates are tracked.
+.env
+.env.*
+!.env.example
+
 # Local exports generated while testing
 aether_stix_bundle_*.json
 aether_attribution_matrix.csv

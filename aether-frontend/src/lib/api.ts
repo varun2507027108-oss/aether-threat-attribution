@@ -3,7 +3,14 @@
  * Bridges Next.js frontend to FastAPI backend on http://localhost:8000
  */
 
-export const API_BASE = "http://localhost:8000";
+/**
+ * Resolved at build time. The value is baked into the client bundle, which is
+ * why it must be a non-secret LAN address and never a credential.
+ *
+ * Defaults to the host loopback, which is what the Docker compose stack
+ * publishes: the browser resolves localhost, not the container.
+ */
+export const API_BASE = process.env.NEXT_PUBLIC_API_BASE || "http://localhost:8000";
 
 /**
  * SECURITY NOTE ON AUTHENTICATION CREDENTIALS:

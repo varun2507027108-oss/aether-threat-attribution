@@ -17,6 +17,7 @@ services:
       interval: 5s
       timeout: 5s
       retries: 10
+    restart: unless-stopped
 
   tor:
     image: peterdavehello/tor-socks-proxy:latest
@@ -33,10 +34,41 @@ services:
       DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg2://${POSTGRES_USER:-aether}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-aether}}
       AETHER_API_KEY: ${AETHER_API_KEY:?Set AETHER_API_KEY in .env}
       AETHER_REQUIRE_AUTH: ${AETHER_REQUIRE_AUTH:-true}
+
+      # Multi-key RBAC. Unset means "fall back to the single AETHER_API_KEY as
+      # investigator", so the zero-config path still works. Example:
+      #   AETHER_API_KEYS=investigator:key-a,auditor:key-b
+      AETHER_API_KEYS: ${AETHER_API_KEYS:-}
+
       ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-http://localhost:3000,http://127.0.0.1:3000}
       ENVIRONMENT: ${ENVIRONMENT:-production}
+
+      # Investigator OPSEC
       AETHER_TOR_SOCKS_URL: ${AETHER_TOR_SOCKS_URL:-socks5://tor:9050}
       AETHER_ACTIVE_PROBE_ENABLED: ${AETHER_ACTIVE_PROBE_ENABLED:-false}
+
+      # Intel source. Defaults to mock so a container makes no outbound calls
+      # unless the operator supplies API keys and opts into live mode.
+      AETHER_INTEL_MODE: ${AETHER_INTEL_MODE:-mock}
+      SHODAN_API_KEY: ${SHODAN_API_KEY:-}
+      CENSYS_API_ID: ${CENSYS_API_ID:-}
+      CENSYS_API_SECRET: ${CENSYS_API_SECRET:-}
+
+      # Custody chain signing (Phase 2). Unset means unsigned legacy entries.
+      AETHER_SIGNING_KEY: ${AETHER_SIGNING_KEY:-}
+      AETHER_SIGNING_PUBLIC_KEY: ${AETHER_SIGNING_PUBLIC_KEY:-}
+      AETHER_CHECKPOINT_INTERVAL: ${AETHER_CHECKPOINT_INTERVAL:-10}
+      AETHER_TSA_URL: ${AETHER_TSA_URL:-}
+
+      # Calibrated scoring (Phase 6)
+      AETHER_PRIOR_ODDS: ${AETHER_PRIOR_ODDS:-1:9}
+      AETHER_CONFLICT_THRESHOLD: ${AETHER_CONFLICT_THRESHOLD:-0.6}
+      AETHER_ELEVATED_CONFLICT_FLOOR: ${AETHER_ELEVATED_CONFLICT_FLOOR:-0.35}
+
+      # DPDP retention (Phase 10)
+      AETHER_RETENTION_DAYS: ${AETHER_RETENTION_DAYS:-365}
+
+      AETHER_MODULE_TIMEOUT: ${AETHER_MODULE_TIMEOUT:-45}
     ports:
       - "127.0.0.1:8000:8000"
     depends_on:
@@ -44,6 +76,32 @@ services:
         condition: service_healthy
       tor:
         condition: service_started
+    healthcheck:
+      # The API is only "up" once it actually answers, not merely once the port
+      # is open; uvicorn binds before the schema is ready.
+      test: ["CMD-SHELL", "python -c \"import urllib.request;urllib.request.urlopen('http://127.0.0.1:8000/api/health',timeout=3)\""]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 15s
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: ./aether-frontend
+    container_name: aether-frontend
+    environment:
+      # The browser, not the container, resolves this. The API publishes itself
+      # on the host loopback, so localhost is correct for a local run. Change to
+      # the API's LAN address if you serve the console to another machine.
+      NEXT_PUBLIC_AETHER_API_KEY: ${AETHER_API_KEY}
+      NEXT_PUBLIC_API_BASE: ${NEXT_PUBLIC_API_BASE:-http://localhost:8000}
+    ports:
+      - "127.0.0.1:3000:3000"
+    depends_on:
+      api:
+        condition: service_healthy
+    restart: unless-stopped
 
 volumes:
   aether_pg_data:
