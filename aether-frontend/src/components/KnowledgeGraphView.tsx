@@ -831,7 +831,7 @@ export const KnowledgeGraphView: React.FC<KnowledgeGraphViewProps> = ({
                   technology badge stays, because it discloses what actually
                   renders the view. */}
               <h2 className="text-xl font-bold text-ink tracking-tight flex items-center gap-2">
-                <span>3D Forensic Knowledge Graph</span>
+                <span>Connections</span>
               <span className="text-xs font-mono font-normal px-2 py-0.5 bg-raised text-info-ink border border-info-line">
                 THREE.JS WebGL
               </span>
