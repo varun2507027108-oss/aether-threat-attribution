@@ -82,6 +82,7 @@ class EvidenceCreate(BaseModel):
 
 class EvidenceOut(BaseModel):
     id: int
+    case_id: int | None = None
     case_id: int
     evidence_type: str
     title: str
