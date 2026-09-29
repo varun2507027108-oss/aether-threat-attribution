@@ -537,6 +537,66 @@ function triggerBrowserDownload(filename: string, mime: string, content: string 
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
+/**
+ * Downloads the server-generated statutory certificate.
+ *
+ * The button this replaces called `window.print()`, which printed whatever the
+ * browser happened to be displaying. Because the console is a single-page
+ * application, "Print Court PDF" produced a screenshot of the dashboard in
+ * every exported dossier -- an artefact that looks like evidence and is not.
+ *
+ * The real certificate is assembled server-side by reportlab from the case
+ * record and the custody chain, and is a genuine document.
+ *
+ * There is deliberately **no client-side fallback here**, unlike the STIX and
+ * CSV exports. A court document must not be reconstructed in the browser from
+ * data the client happens to be holding; if the server cannot produce one, the
+ * correct outcome is a refusal, not a plausible-looking substitute.
+ */
+export async function downloadStatutoryCertificate(
+  evidenceId: string = "AT-2026-0047"
+): Promise<{ ok: true; filename: string } | { ok: false; status: number; detail: string }> {
+  const filename = `aether_statutory_certificate_${evidenceId}.pdf`;
+  try {
+    const res = await fetch(`${API_BASE}/api/cases/${evidenceId}/export/certificate`, {
+      headers: getAuthHeaders(),
+    });
+
+    if (res.ok) {
+      const blob = await res.blob();
+      if (blob.type && !blob.type.includes("pdf")) {
+        return {
+          ok: false,
+          status: 500,
+          detail: "The export endpoint returned a non-PDF document.",
+        };
+      }
+      triggerBrowserDownload(filename, "application/pdf", blob);
+      return { ok: true, filename };
+    }
+
+    // 409 is the human-in-the-loop export gate, not a failure.
+    let detail = `Export refused with status ${res.status}.`;
+    try {
+      const body = await res.json();
+      if (typeof body?.detail === "string") detail = body.detail;
+    } catch {
+      /* response had no JSON body; keep the generic message */
+    }
+    return { ok: false, status: res.status, detail };
+  } catch (err) {
+    // Do not synthesise a certificate. Report the failure instead.
+    return {
+      ok: false,
+      status: 0,
+      detail:
+        err instanceof Error
+          ? `Could not reach the export service: ${err.message}`
+          : "Could not reach the export service.",
+    };
+  }
+}
+
 export async function downloadStixBundle(
   evidenceId: string = "AT-2026-0047"
 ): Promise<{ isLive: boolean; filename: string }> {

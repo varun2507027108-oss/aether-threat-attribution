@@ -835,9 +835,19 @@ async def run_full_investigation_async(
         case.actor_name = actor_name
         case.target_url = clean_target
         case.target_type = target_type
+        # Evidence and correlations are derived data, so regenerating them is
+        # defensible. Custody is NOT derived data.
         case.evidence_records.clear()
         case.correlations.clear()
-        case.custody.clear()
+        # `case.custody.clear()` used to sit here. It meant that simply opening
+        # a case -- a plain GET -- deleted the entire sealed chain and rebuilt it
+        # from the genesis hash. Consequences, all observed in the running
+        # system: the chain was not append-only; any custody entry an
+        # investigator had appended was destroyed; the export confirmation was
+        # destroyed, so the human-in-the-loop export gate re-closed on the next
+        # page load and a court document could never actually be issued; and a
+        # sealed record could be erased by an operation that was supposed to
+        # only read it. The chain now continues from its existing tip.
     else:
         case = Case(
             evidence_id=evidence_id,
@@ -862,9 +872,17 @@ async def run_full_investigation_async(
     geo_loc = "Munich, Bavaria, Germany"
     asn_org = "AS9009 M247 Europe"
 
-    # Genesis Custody Block Setup
-    prev_hash = GENESIS_HASH
-    seq = 1
+    # Custody chain setup. For a new case this starts at the genesis hash. For an
+    # existing case it resumes from the current tip, so a re-run appends and the
+    # chain stays append-only.
+    existing_tip = None
+    existing_max_seq = 0
+    for _row in case.custody:
+        if _row.seq is not None and _row.seq > existing_max_seq:
+            existing_max_seq = _row.seq
+            existing_tip = _row
+    prev_hash = existing_tip.entry_hash if existing_tip and existing_tip.entry_hash else GENESIS_HASH
+    seq = existing_max_seq + 1
     evidence_items: List[Evidence] = []
     custody_entries: List[CustodyRow] = []
     timeline: List[Dict[str, Any]] = []

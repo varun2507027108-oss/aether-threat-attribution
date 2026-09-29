@@ -5,6 +5,7 @@ import {
   appendCustodyEntry,
   CustodyEntryItem,
   downloadForensicCsv,
+  downloadStatutoryCertificate,
   downloadStixBundle,
   fetchCaseCustody,
   verifyCustodyLedger,
@@ -38,6 +39,38 @@ export const CustodyLedgerView: React.FC<CustodyLedgerViewProps> = ({
    */
   const [loadedId, setLoadedId] = useState<string | null>(null);
   const loading = loadedId !== evidenceId;
+  const [issuingCertificate, setIssuingCertificate] = useState(false);
+
+  /*
+   * Downloads the server-generated statutory certificate.
+   *
+   * This button previously called `window.print()`, which in a single-page
+   * application prints the console itself. The artefact it produced was a
+   * screenshot of the interface presented as a court document.
+   */
+  const handleCertificateDownload = async () => {
+    setIssuingCertificate(true);
+    try {
+      const result = await downloadStatutoryCertificate(evidenceId);
+      if (result.ok) {
+        onShowToast(
+          "Statutory certificate issued",
+          `${result.filename} generated server-side from the case record and custody chain.`
+        );
+      } else if (result.status === 409) {
+        onShowToast(
+          "Release not affirmed",
+          "An investigator must affirm release before a court document can be issued."
+        );
+      } else if (result.status === 403) {
+        onShowToast("Not permitted", "Your role cannot issue a court document for this case.");
+      } else {
+        onShowToast("Certificate not issued", result.detail);
+      }
+    } finally {
+      setIssuingCertificate(false);
+    }
+  };
 
   useEffect(() => {
     let cancelled = false;
@@ -352,13 +385,13 @@ export const CustodyLedgerView: React.FC<CustodyLedgerViewProps> = ({
               </button>
 
               <button
-                onClick={() => {
-                  onShowToast("Court Dossier", "Rendering statutory report for judicial submission...");
-                  setTimeout(() => window.print(), 400);
-                }}
-                className="w-full py-2.5 bg-active hover:bg-info-hover text-white border border-line-active text-xs font-mono font-bold transition flex items-center justify-center gap-2"
+                type="button"
+                onClick={handleCertificateDownload}
+                disabled={issuingCertificate}
+                className="w-full py-2.5 min-h-11 bg-active hover:bg-info-hover text-ink border border-line-active text-xs font-mono font-bold transition flex items-center justify-center gap-2 disabled:opacity-60"
               >
-                <i className="fa-solid fa-print text-xs"></i> Print Courtroom PDF
+                <i className="fa-solid fa-file-pdf text-xs" aria-hidden="true"></i>
+                {issuingCertificate ? "Issuing…" : "Issue Court Certificate"}
               </button>
             </div>
           </div>
