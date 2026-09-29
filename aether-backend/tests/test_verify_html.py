@@ -67,10 +67,93 @@ def test_verify_html_documents_the_statutory_basis():
 
 
 def test_verify_html_uses_the_existing_design_system():
+    """The verifier must be the same instrument as the console it accompanies.
+
+    The theme is the console's: cold near-black surfaces from the seven-step
+    ramp, hairline borders, the four ink roles, the four semantic state colours,
+    and 0px radius. These are the exact values from
+    aether-frontend/src/app/globals.css @theme, asserted individually so a
+    partial revert cannot pass.
+
+    This test previously asserted "#0f172a" and "#000000", which pinned the
+    verifier to a light-mode palette the console no longer uses.
+    """
     html = VERIFY_HTML.read_text(encoding="utf-8")
+
+    # House identity: nothing is rounded.
     assert "border-radius: 0 !important" in html
-    assert "#0f172a" in html and "#000000" in html
+
+    # Surface ramp, canvas first. #000000 is absent on purpose: the console
+    # argues against it explicitly (OLED halation) in globals.css.
+    for token in (
+        "--canvas: #08090c",
+        "--sunken: #06080d",
+        "--input: #080b10",
+        "--card: #0d1017",
+        "--surface: #12161f",
+        "--raised: #1a2230",
+        "--active: #1e2736",
+    ):
+        assert token in html, f"missing console surface token {token!r}"
+    assert "#000000" not in html, "the console does not use pure black; see globals.css"
+
+    # Four hairline weights and four ink roles.
+    for token in (
+        "--line-faint: #141c29",
+        "--line: #1e2533",
+        "--line-strong: #273447",
+        "--line-active: #37455d",
+        "--ink: #f1f5f9",
+        "--ink-muted: #94a3b8",
+        "--ink-dim: #8593a8",
+        "--ink-faint: #8292a8",
+    ):
+        assert token in html, f"missing console ink/line token {token!r}"
+
+    # Every semantic state the verdict banners rely on.
+    for token in (
+        "--signal: #22c55e",
+        "--signal-surface: #0f2419",
+        "--alert: #dc2626",
+        "--alert-surface: #2a1215",
+        "--warn: #f59e0b",
+        "--warn-surface: #251e10",
+        "--info: #38bdf8",
+        "--info-surface: #121a26",
+        "--focus: #7dd3fc",
+    ):
+        assert token in html, f"missing console semantic token {token!r}"
+
     assert "--font-mono" in html
+    assert "outline: 2px solid var(--focus)" in html, "one focus ring, as in the console"
+
+
+def test_verify_html_ink_roles_clear_wcag_aa_on_the_card_surface():
+    """The console asserts 4.5:1 for its ink roles on --color-card. Verify it.
+
+    The previous theme pinned --ink-faint at 5.13:1 against a light card, which
+    is what made the light palette pass. On this near-black ramp the same role
+    has to be measured again rather than assumed, and it is measured here
+    against the real values rather than against a comment.
+    """
+    html = VERIFY_HTML.read_text(encoding="utf-8")
+
+    def channel(value: str) -> float:
+        v = value / 255
+        return v / 12.92 if v <= 0.03928 else ((v + 0.055) / 1.055) ** 2.4
+
+    def luminance(colour: str) -> float:
+        r, g, b = (int(colour[i : i + 2], 16) for i in (1, 3, 5))
+        return 0.2126 * channel(r) + 0.7152 * channel(g) + 0.0722 * channel(b)
+
+    def ratio(fg: str, bg: str) -> float:
+        a, b = luminance(fg), luminance(bg)
+        return (max(a, b) + 0.05) / (min(a, b) + 0.05)
+
+    card = "#0d1017"
+    for role in ("#f1f5f9", "#94a3b8", "#8593a8", "#8292a8"):
+        assert role in html, f"missing ink role {role}"
+        assert ratio(role, card) >= 4.5, f"{role} is below 4.5:1 on {card}"
 
 
 def test_verify_html_is_copied_into_the_frontend_public_dir():

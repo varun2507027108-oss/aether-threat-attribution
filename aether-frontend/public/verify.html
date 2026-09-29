@@ -7,97 +7,172 @@
 <style>
 /* =====================================================================
    AETHER - DESIGN SYSTEM
-   Mirrors index.html exactly: 0px radius, 1px solid borders, #000/#fff
-   palette, monospace data type. Zero dependencies, zero network calls.
+   Mirrors the console exactly: 0px radius, 1px hairline borders, the same
+   near-black surface ramp and the same semantic colours, monospace data
+   type. Zero dependencies, zero network calls.
+
+   The palette is the console's, not a light-mode counterpart. The verifier
+   was previously #000/#fff with a slate accent, which is not what the product
+   looks like any more: the console is cold near-black with a seven-step
+   surface ramp, and a verifier that a third party opens alongside the console
+   should be recognisably the same instrument. The values below are copied
+   from aether-frontend/src/app/globals.css @theme; the fonts are system
+   stacks because this file must work with no network.
    ===================================================================== */
 :root {
-  --black: #000000;
-  --white: #ffffff;
-  --slate-50: #f8fafc;
-  --slate-200: #e2e8f0;
-  --slate-900: #0f172a;
-  --border: 1px solid var(--black);
-  --border-soft: 1px solid var(--slate-200);
+  /* --- Surfaces: the console's seven-step ramp ------------------------- */
+  --canvas: #08090c;      /* page. Near-black, never #000: that halates on OLED. */
+  --sunken: #06080d;      /* deepest inset */
+  --input: #080b10;       /* field wells */
+  --card: #0d1017;        /* the canonical card */
+  --surface: #12161f;     /* panels, banners */
+  --raised: #1a2230;      /* hover, popovers */
+  --active: #1e2736;      /* selected fill */
+
+  /* --- Lines: four hairline weights ------------------------------------- */
+  --line-faint: #141c29;
+  --line: #1e2533;
+  --line-strong: #273447;
+  --line-active: #37455d;
+
+  /* --- Ink: all four clear 4.5:1 on --card ------------------------------ */
+  --ink: #f1f5f9;
+  --ink-muted: #94a3b8;
+  --ink-dim: #8593a8;
+  --ink-faint: #8292a8;
+
+  /* --- Semantic states ------------------------------------------------- */
+  --signal: #22c55e;
+  --signal-ink: #4ade80;
+  --signal-surface: #0f2419;
+  --signal-line: #1f5735;
+  --alert: #dc2626;
+  --alert-ink: #f87171;
+  --alert-surface: #2a1215;
+  --alert-line: #4a1f24;
+  --warn: #f59e0b;
+  --warn-ink: #fcd34d;
+  --warn-surface: #251e10;
+  --warn-line: #523d1b;
+  --info: #38bdf8;
+  --info-ink: #7dd3fc;
+  --info-surface: #121a26;
+  --info-line: #22354e;
+  --focus: #7dd3fc;
+
+  --border: 1px solid var(--line);
+  --border-soft: 1px solid var(--line-faint);
   --font-mono: ui-monospace, "SF Mono", "Cascadia Mono", Consolas, "Liberation Mono", Menlo, monospace;
   --font-sans: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
 }
 *, *::before, *::after { box-sizing: border-box; border-radius: 0 !important; box-shadow: none !important; text-shadow: none !important; }
-html, body { margin: 0; padding: 0; background: var(--white); color: var(--black); font-family: var(--font-sans); font-size: 13px; line-height: 1.5; }
+html, body { margin: 0; padding: 0; background: var(--canvas); color: var(--ink); font-family: var(--font-sans); font-size: 13px; line-height: 1.5; }
 body { min-height: 100vh; display: flex; flex-direction: column; }
+/* The console's single focus treatment: one cyan ring, never a state change
+   in the content itself. */
+:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
 
-.app-header { display: flex; align-items: stretch; justify-content: space-between; border-bottom: var(--border); background: var(--white); }
+.app-header { display: flex; align-items: stretch; justify-content: space-between; border-bottom: var(--border); background: var(--card); }
 .brand { display: flex; align-items: center; gap: 14px; padding: 12px 20px; border-right: var(--border); }
-.brand-mark { width: 28px; height: 28px; border: 2px solid var(--black); display: grid; place-items: center; font-family: var(--font-mono); font-weight: 700; font-size: 15px; }
+.brand-mark { width: 28px; height: 28px; border: 1px solid var(--line-active); display: grid; place-items: center; font-family: var(--font-mono); font-weight: 700; font-size: 15px; color: var(--ink); }
 .brand-name { font-family: var(--font-mono); font-weight: 700; font-size: 16px; letter-spacing: 0.24em; }
-.brand-sub { font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--slate-900); }
+.brand-sub { font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink-dim); }
 .header-meta { display: flex; align-items: stretch; font-family: var(--font-mono); font-size: 11px; }
 .meta-cell { padding: 12px 20px; border-left: var(--border); display: flex; flex-direction: column; gap: 2px; }
-.meta-label { font-size: 9px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--slate-900); }
+.meta-label { font-size: 10px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--ink-faint); }
 .meta-value { font-weight: 700; }
 
 .wrap { flex: 1; width: 100%; max-width: 1180px; margin: 0 auto; padding: 24px 20px 60px; }
 h1 { font-family: var(--font-mono); font-size: 20px; letter-spacing: 0.1em; text-transform: uppercase; margin: 0 0 4px; }
-.lede { color: var(--slate-900); max-width: 78ch; margin: 0 0 20px; }
-.lede code { font-family: var(--font-mono); font-size: 12px; background: var(--slate-50); padding: 1px 4px; border: var(--border-soft); }
+.lede { color: var(--ink-muted); max-width: 78ch; margin: 0 0 20px; }
+.lede b { color: var(--ink); }
+.lede code { font-family: var(--font-mono); font-size: 12px; background: var(--input); color: var(--ink); padding: 1px 4px; border: var(--border-soft); }
 
 .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
 @media (max-width: 860px) { .grid { grid-template-columns: 1fr; } .header-meta { display: none; } }
 
-.card { border: var(--border); background: var(--white); }
+.card { border: var(--border); background: var(--card); }
 .card-head { border-bottom: var(--border); padding: 10px 14px; font-family: var(--font-mono); font-size: 11px; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; display: flex; justify-content: space-between; align-items: center; gap: 10px; }
 .card-body { padding: 14px; }
 
-.btn { appearance: none; background: var(--black); color: var(--white); border: 1px solid var(--black); padding: 9px 18px; font-family: var(--font-mono); font-size: 12px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; cursor: pointer; }
-.btn:hover { background: var(--white); color: var(--black); }
-.btn:focus-visible { outline: 2px solid var(--black); outline-offset: 2px; }
-.btn:disabled { background: var(--slate-200); color: var(--slate-900); border-color: var(--slate-200); cursor: not-allowed; }
-.btn.secondary { background: var(--white); color: var(--black); }
-.btn.secondary:hover { background: var(--black); color: var(--white); }
+/* Emphasis comes from a raised fill and an info-coloured border, the same
+   weight the console uses for its primary action. No white block. */
+.btn { appearance: none; background: var(--active); color: var(--ink); border: 1px solid var(--line-active); padding: 9px 18px; min-height: 44px; font-family: var(--font-mono); font-size: 12px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; cursor: pointer; transition: background 120ms linear, border-color 120ms linear; }
+.btn:hover { background: var(--raised); border-color: var(--info-line); }
+.btn:disabled { background: var(--surface); color: var(--ink-faint); border-color: var(--line); cursor: not-allowed; }
+.btn.secondary { background: var(--surface); color: var(--ink); border-color: var(--line-strong); }
+.btn.secondary:hover { background: var(--raised); color: var(--ink); border-color: var(--line-active); }
 
-.input { width: 100%; border: 1px solid var(--black); background: var(--white); color: var(--black); padding: 9px 12px; font-family: var(--font-mono); font-size: 12px; }
-.input:focus { outline: 2px solid var(--black); outline-offset: 0; }
+.input { width: 100%; min-height: 44px; border: 1px solid var(--line-strong); background: var(--input); color: var(--ink); padding: 9px 12px; font-family: var(--font-mono); font-size: 12px; }
+.input::placeholder { color: var(--ink-faint); }
+.input:focus { outline: 2px solid var(--focus); outline-offset: 0; border-color: var(--info-line); }
 textarea.input { min-height: 96px; resize: vertical; }
 
-.dropzone { border: 2px dashed var(--slate-200); padding: 26px 16px; text-align: center; font-family: var(--font-mono); font-size: 12px; color: var(--slate-900); cursor: pointer; background: var(--slate-50); }
-.dropzone.over { border-color: var(--black); background: var(--slate-200); color: var(--black); }
-.row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+.dropzone { border: 1px dashed var(--line-strong); padding: 26px 16px; text-align: center; font-family: var(--font-mono); font-size: 12px; color: var(--ink-muted); cursor: pointer; background: var(--sunken); transition: border-color 120ms linear, background 120ms linear; }
+.dropzone code { color: var(--info-ink); }
+.dropzone.over { border-color: var(--info); background: var(--info-surface); color: var(--ink); }
+/* `align-items: stretch`, not `center`. With `center` the three buttons were
+   sized to their own text and wrapped onto two ragged rows, which read as a
+   layout fault rather than a deliberate stack. Stretching them to a common
+   height and letting flex-wrap handle the width gives the clean two-row grid
+   the console uses elsewhere. */
+.row { display: flex; gap: 10px; flex-wrap: wrap; align-items: stretch; }
 .row + .row { margin-top: 12px; }
-label.field { display: block; font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase; margin-bottom: 5px; }
-.hint { font-family: var(--font-mono); font-size: 10px; color: var(--slate-900); margin-top: 6px; }
+label.field { display: block; font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--ink-muted); margin-bottom: 5px; }
+.hint { font-family: var(--font-mono); font-size: 10px; color: var(--ink-faint); margin-top: 6px; line-height: 1.5; }
 
-.verdict { border: var(--border); padding: 16px; font-family: var(--font-mono); }
-.verdict.ok { background: var(--white); border-color: var(--black); }
-.verdict.bad { background: var(--slate-900); color: var(--white); border-color: var(--black); }
-.verdict.warn { background: var(--slate-50); border-color: var(--black); border-left: 8px solid var(--black); }
+/* Verdict states take the console's semantic colours. "Bad" is no longer an
+   inverted slab; it is the alert surface with an alert border, so a broken
+   chain reads as a warning inside the system rather than a different site. */
+.verdict { border: 1px solid var(--line); padding: 16px; font-family: var(--font-mono); }
+.verdict.ok { background: var(--signal-surface); border-color: var(--signal-line); color: var(--ink); }
+.verdict.ok .verdict-title { color: var(--signal-ink); }
+.verdict.bad { background: var(--alert-surface); border-color: var(--alert-line); color: var(--ink); }
+.verdict.bad .verdict-title { color: var(--alert-ink); }
+.verdict.warn { background: var(--warn-surface); border-color: var(--warn-line); color: var(--ink); }
+.verdict.warn .verdict-title { color: var(--warn-ink); }
 .verdict-title { font-size: 16px; font-weight: 700; letter-spacing: 0.14em; text-transform: uppercase; margin-bottom: 8px; }
-.verdict-line { font-size: 12px; }
-.verdict-line b { font-weight: 700; }
+.verdict-line { font-size: 12px; line-height: 1.6; }
+.verdict-line b { font-weight: 700; color: var(--ink); }
 .hashline { word-break: break-all; }
 
-.stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); border: var(--border); }
-.stat { border-right: var(--border-soft); border-bottom: var(--border-soft); padding: 10px 12px; }
-.stat-label { font-family: var(--font-mono); font-size: 9px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--slate-900); }
-.stat-value { font-family: var(--font-mono); font-size: 15px; font-weight: 700; margin-top: 3px; word-break: break-all; }
-.badge { display: inline-block; border: 1px solid var(--black); padding: 1px 8px; font-family: var(--font-mono); font-size: 10px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; }
-.badge.solid { background: var(--black); color: var(--white); }
-.badge.invert { background: var(--slate-900); color: var(--white); }
+/* Five columns at desktop: the six stats are File, Entries, Hash chain,
+   Signatures, Signature check, Chain tip, and the last two hold long
+   monospace values. auto-fit with a 150px floor gave each cell an equal
+   share, which left the hash wrapping to five lines and forced the whole grid
+   to two rows with dead space underneath the short cells. Explicit columns
+   give the two hash-bearing cells room and the short ones their natural size.
+   Below 1100px the track count drops so nothing is crushed. */
+.stats { display: grid; grid-template-columns: minmax(0, 0.9fr) minmax(0, 0.5fr) minmax(0, 1.1fr) minmax(0, 0.8fr) minmax(0, 0.9fr) minmax(0, 1.6fr); border: var(--border); }
+@media (max-width: 1100px) { .stats { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+@media (max-width: 700px) { .stats { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+/* `min-width: 0` so a 64-char hash wraps inside its cell instead of forcing the
+   whole grid wider. The chain tip is a full SHA-256 and it is the one value on
+   this page that must be readable in full. */
+.stat { border-right: var(--border-soft); border-bottom: var(--border-soft); padding: 10px 12px; background: var(--card); min-width: 0; }
+.stat-label { font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--ink-faint); }
+.stat-value { font-family: var(--font-mono); font-size: 13px; font-weight: 700; margin-top: 3px; word-break: break-all; color: var(--ink); line-height: 1.5; }
+.badge { display: inline-block; border: 1px solid var(--line-strong); padding: 1px 8px; font-family: var(--font-mono); font-size: 10px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink-dim); }
+.badge.solid { background: var(--signal-surface); color: var(--signal-ink); border-color: var(--signal-line); }
+.badge.invert { background: var(--info-surface); color: var(--info-ink); border-color: var(--info-line); }
 
 table.data { width: 100%; border-collapse: collapse; font-family: var(--font-mono); font-size: 12px; }
-table.data th { text-align: left; border-bottom: var(--border); padding: 8px 10px; font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase; }
+table.data th { text-align: left; border-bottom: var(--border); padding: 8px 10px; font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--ink-dim); }
 table.data td { border-bottom: var(--border-soft); padding: 7px 10px; vertical-align: top; word-break: break-word; }
-table.data tr.ok td:first-child { border-left: 6px solid var(--black); }
-table.data tr.broken td { background: var(--slate-900); color: var(--white); }
-table.data tr.broken td:first-child { border-left: 6px solid var(--white); }
-table.data tr.unlinked td { background: var(--slate-50); }
+table.data tr.ok td:first-child { border-left: 3px solid var(--signal); }
+table.data tr.broken td { background: var(--alert-surface); color: var(--ink); }
+table.data tr.broken td:first-child { border-left: 3px solid var(--alert); }
+table.data tr.unlinked td { background: var(--warn-surface); }
+table.data tr.unlinked td:first-child { border-left: 3px solid var(--warn); }
 table.data td.seq { width: 52px; font-weight: 700; }
 table.data td.status { width: 108px; font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase; }
-table.data td.mono-small { font-size: 10px; color: var(--slate-900); }
-table.data tr.broken td.mono-small { color: var(--slate-200); }
+table.data td.mono-small { font-size: 10px; color: var(--ink-faint); }
+table.data tr.broken td.mono-small { color: var(--alert-ink); }
 
-.legal { font-size: 11px; color: var(--slate-900); border-left: 4px solid var(--black); padding: 10px 12px; background: var(--slate-50); }
-.legal b { color: var(--black); }
-footer.app-footer { border-top: var(--border); padding: 14px 20px; font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--slate-900); display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
-a { color: var(--black); }
+.legal { font-size: 11px; color: var(--ink-muted); border-left: 3px solid var(--info); padding: 10px 12px; background: var(--info-surface); }
+.legal b { color: var(--ink); }
+footer.app-footer { border-top: var(--border); padding: 14px 20px; font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink-faint); background: var(--card); display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+a { color: var(--info-ink); }
 .hidden { display: none !important; }
 .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
 </style>
