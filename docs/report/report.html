@@ -1,0 +1,819 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>AETHER — Technical Report</title>
+<style>
+  /* ============================================================
+     Report design system. Light document pages so the dark
+     application screenshots read as figures, accent colours taken
+     from the product so the document and the software look related.
+     ============================================================ */
+  :root{
+    --ink:#0f172a; --ink-2:#334155; --ink-3:#64748b; --ink-4:#94a3b8;
+    --rule:#e2e8f0; --rule-2:#cbd5e1; --page:#ffffff; --tint:#f8fafc;
+    --signal:#15803d; --signal-bg:#f0fdf4; --signal-rule:#bbf7d0;
+    --info:#0369a1;  --info-bg:#f0f9ff;  --info-rule:#bae6fd;
+    --warn:#b45309;  --warn-bg:#fffbeb;  --warn-rule:#fde68a;
+    --alert:#b91c1c; --alert-bg:#fef2f2; --alert-rule:#fecaca;
+  }
+  @page{ size:A4; margin:16mm 15mm 16mm 15mm; }
+  *{ box-sizing:border-box; }
+  html,body{ margin:0; padding:0; }
+  body{
+    font-family:"Segoe UI",Inter,-apple-system,BlinkMacSystemFont,Arial,sans-serif;
+    font-size:9.6pt; line-height:1.55; color:var(--ink); background:var(--page);
+    -webkit-print-color-adjust:exact; print-color-adjust:exact;
+  }
+  .mono{ font-family:"JetBrains Mono",Consolas,"Courier New",monospace; }
+
+  /* ---------- cover ---------- */
+  .cover{ page-break-after:always; padding-top:8mm; }
+  .cover-rule{ height:3px; background:var(--ink); margin-bottom:6mm; }
+  .kicker{ font-size:8pt; letter-spacing:.18em; text-transform:uppercase; color:var(--ink-3); font-weight:700; }
+  h1{ font-size:30pt; line-height:1.05; margin:4mm 0 2mm; letter-spacing:-.02em; font-weight:800; }
+  .sub{ font-size:12pt; color:var(--ink-2); font-weight:500; margin-bottom:8mm; max-width:150mm; }
+  .meta{ display:grid; grid-template-columns:38mm 1fr; gap:2mm 6mm; font-size:9.4pt; border-top:1px solid var(--rule); padding-top:5mm; max-width:150mm;}
+  .meta dt{ color:var(--ink-3); font-weight:600; }
+  .meta dd{ margin:0; font-weight:600; }
+  .cover-note{ margin-top:9mm; padding:4mm 5mm; background:var(--warn-bg); border:1px solid var(--warn-rule); border-left:3px solid var(--warn); font-size:9pt; }
+  .cover-note b{ color:var(--warn); }
+
+  /* ---------- structure ---------- */
+  h2{ font-size:15pt; margin:0 0 1mm; letter-spacing:-.01em; font-weight:800; padding-bottom:1.5mm; border-bottom:2px solid var(--ink); }
+  h2 .num{ color:var(--ink-4); font-weight:700; margin-right:2.5mm; }
+  h3{ font-size:11pt; margin:6mm 0 1.5mm; font-weight:700; }
+  h4{ font-size:9.8pt; margin:4mm 0 1mm; font-weight:700; color:var(--ink-2); text-transform:uppercase; letter-spacing:.06em; }
+  p{ margin:0 0 2.6mm; max-width:172mm; }
+  ul,ol{ margin:0 0 3mm; padding-left:6mm; max-width:168mm; }
+  li{ margin-bottom:1.2mm; }
+  section{ page-break-before:always; }
+  section.first{ page-break-before:avoid; }
+  .lede{ font-size:10.6pt; color:var(--ink-2); margin-bottom:4mm; max-width:168mm; }
+
+  /* ---------- figures ---------- */
+  figure{ margin:4mm 0 5mm; page-break-inside:avoid; }
+  figure img{ width:100%; border:1px solid var(--rule-2); display:block; }
+  figcaption{ font-size:8.4pt; color:var(--ink-3); margin-top:1.8mm; padding-top:1.5mm; border-top:1px solid var(--rule); }
+  figcaption b{ color:var(--ink-2); }
+  .fig-pair{ display:grid; grid-template-columns:1fr 1fr; gap:4mm; }
+  .fig-pair figure{ margin:2mm 0; }
+
+  /* ---------- tables ---------- */
+  table{ width:100%; border-collapse:collapse; margin:3mm 0 4mm; font-size:8.9pt; page-break-inside:avoid; }
+  th{ text-align:left; font-size:7.8pt; letter-spacing:.09em; text-transform:uppercase; color:var(--ink-3);
+      border-bottom:1.5px solid var(--ink-2); padding:2mm 2.5mm; font-weight:700; }
+  td{ padding:1.9mm 2.5mm; border-bottom:1px solid var(--rule); vertical-align:top; }
+  tbody tr:nth-child(even){ background:var(--tint); }
+  .tag{ display:inline-block; font-size:7.4pt; font-weight:700; letter-spacing:.04em;
+        padding:.7mm 1.8mm; border:1px solid; white-space:nowrap; }
+  .t-signal{ color:var(--signal); background:var(--signal-bg); border-color:var(--signal-rule); }
+  .t-warn{ color:var(--warn); background:var(--warn-bg); border-color:var(--warn-rule); }
+  .t-info{ color:var(--info); background:var(--info-bg); border-color:var(--info-rule); }
+  .t-alert{ color:var(--alert); background:var(--alert-bg); border-color:var(--alert-rule); }
+
+  /* ---------- metrics ---------- */
+  .metrics{ display:grid; grid-template-columns:repeat(4,1fr); gap:3mm; margin:4mm 0 5mm; }
+  .metric{ border:1px solid var(--rule-2); border-top:3px solid var(--ink); padding:3mm; }
+  .metric .v{ font-size:19pt; font-weight:800; line-height:1; letter-spacing:-.02em; }
+  .metric .l{ font-size:7.6pt; text-transform:uppercase; letter-spacing:.08em; color:var(--ink-3); margin-top:1.4mm; font-weight:700; }
+  .metric.g{ border-top-color:var(--signal); } .metric.g .v{ color:var(--signal); }
+  .metric.a{ border-top-color:var(--warn); }  .metric.a .v{ color:var(--warn); }
+  .metric.i{ border-top-color:var(--info); }  .metric.i .v{ color:var(--info); }
+
+  /* ---------- callouts ---------- */
+  .box{ padding:3mm 4mm; margin:3.5mm 0; font-size:9.1pt; page-break-inside:avoid; border:1px solid; }
+  .box p:last-child{ margin-bottom:0; }
+  .box .bt{ font-weight:800; font-size:8.4pt; letter-spacing:.09em; text-transform:uppercase; margin-bottom:1.5mm; }
+  .box-warn{ background:var(--warn-bg); border-color:var(--warn-rule); border-left:3px solid var(--warn); }
+  .box-warn .bt{ color:var(--warn); }
+  .box-alert{ background:var(--alert-bg); border-color:var(--alert-rule); border-left:3px solid var(--alert); }
+  .box-alert .bt{ color:var(--alert); }
+  .box-info{ background:var(--info-bg); border-color:var(--info-rule); border-left:3px solid var(--info); }
+  .box-info .bt{ color:var(--info); }
+  .box-signal{ background:var(--signal-bg); border-color:var(--signal-rule); border-left:3px solid var(--signal); }
+  .box-signal .bt{ color:var(--signal); }
+
+  .cols{ display:grid; grid-template-columns:1fr 1fr; gap:6mm; }
+  .cols3{ display:grid; grid-template-columns:1fr 1fr 1fr; gap:4mm; }
+  .toc{ list-style:none; padding-left:0; margin:0 0 3mm; }
+  .toc li{ margin-bottom:1.6mm; font-size:9.4pt; }
+  .toc .n{ display:inline-block; width:11mm; color:var(--ink-4); font-weight:700; }
+  code{ font-family:"JetBrains Mono",Consolas,monospace; font-size:8.4pt; background:var(--tint);
+        border:1px solid var(--rule); padding:.4mm 1.2mm; }
+  pre{ font-family:"JetBrains Mono",Consolas,monospace; font-size:8pt; background:var(--tint);
+       border:1px solid var(--rule); border-left:3px solid var(--ink-2); padding:3mm; overflow:hidden;
+       white-space:pre-wrap; line-height:1.5; }
+  .fn{ font-size:8.2pt; color:var(--ink-3); margin-top:-1.5mm; margin-bottom:3mm; }
+</style>
+</head>
+<body>
+
+<!-- ============================ COVER ============================ -->
+<div class="cover">
+  <div class="cover-rule"></div>
+  <div class="kicker">Technical Report · Smart India Hackathon 2026</div>
+  <h1>AETHER</h1>
+  <div class="sub">Autonomous Dark Web Threat Actor De-Anonymization — lawful evidence correlation with a verifiable chain of custody</div>
+
+  <dl class="meta">
+    <dt>Problem statement</dt><dd>NTRO PS-26151 — Dark Web Threat Actor De-Anonymization</dd>
+    <dt>Team</dt><dd>Team VIHAR</dd>
+    <dt>Track</dt><dd>Smart India Hackathon 2026</dd>
+    <dt>Stack</dt><dd>Next.js 16 · React 19 · Tailwind CSS 4 · FastAPI · SQLAlchemy 2 · PostgreSQL / SQLite</dd>
+    <dt>Repository</dt><dd class="mono">github.com/varun2507027108-oss/aether-threat-attribution</dd>
+    <dt>Date of issue</dt><dd>29 September 2026</dd>
+  </dl>
+
+  <div class="cover-note">
+    <b>Scope and honesty statement.</b> The analysis engines in this system are real implementations
+    and are covered by 470 automated tests. The <i>inputs</i> supplied to six of the ten pipeline modules
+    in the demonstration configuration are curated benchmark fixtures rather than live collected
+    artefacts. Every evidence record carries an explicit provenance tag, and this report identifies
+    precisely which modules are which. Section 9 states our limitations without softening them,
+    including two defects we consider more serious than any missing feature.
+  </div>
+</div>
+
+<!-- ============================ CONTENTS ============================ -->
+<section class="first">
+  <h2><span class="num">00</span>Contents</h2>
+  <ol class="toc">
+    <li><span class="n">01</span>Executive summary</li>
+    <li><span class="n">02</span>The problem and how PS-26151 maps to it</li>
+    <li><span class="n">03</span>System architecture</li>
+    <li><span class="n">04</span>The ten analysis modules</li>
+    <li><span class="n">05</span>Chain of custody and independent verification</li>
+    <li><span class="n">06</span>Explainable attribution confidence</li>
+    <li><span class="n">07</span>Security, access control and data governance</li>
+    <li><span class="n">08</span>Engineering quality and deployment</li>
+    <li><span class="n">09</span>Honest status: real, benchmark, and defective</li>
+    <li><span class="n">10</span>Roadmap</li>
+    <li><span class="n">A</span>Appendix — reproduction and verification</li>
+  </ol>
+
+  <div class="box box-info">
+    <div class="bt">How to read this report</div>
+    <p>Section 05 and Section 09 are the two that matter most for evaluation. Section 05 is the
+    capability we consider genuinely differentiating. Section 09 is where we disclose, in our own
+    words, the places where the system currently overstates what it knows — including a defect in
+    which the custody ledger seals statements that no measurement produced.</p>
+  </div>
+</section>
+
+<!-- ============================ 01 ============================ -->
+<section>
+  <h2><span class="num">01</span>Executive summary</h2>
+  <p class="lede">AETHER correlates lawfully obtained open-source artefacts about a threat actor into
+  a single, defensible profile — and records every step of that correlation in a tamper-evident
+  ledger that a third party can verify without trusting us.</p>
+
+  <div class="metrics">
+    <div class="metric g"><div class="v">470</div><div class="l">Automated tests passing</div></div>
+    <div class="metric g"><div class="v">10</div><div class="l">Analysis modules</div></div>
+    <div class="metric i"><div class="v">4</div><div class="l">Genuine engines</div></div>
+    <div class="metric a"><div class="v">0</div><div class="l">Lint errors</div></div>
+  </div>
+
+  <h3>What the system does</h3>
+  <p>Suspect activity is fragmented. One actor may post under four handles across three markets,
+  sign those posts with a PGP key, receive payment at a Bitcoin address, and serve a site with a
+  distinctive TLS certificate. No single artefact identifies a person. AETHER runs ten forensic
+  modules over such fragments, fuses their independent findings into a single confidence figure with
+  a stated false-positive rate, and appends each action to a hash-linked custody chain.</p>
+
+  <h3>What is genuinely implemented</h3>
+  <ul>
+    <li><b>Hash-linked chain of custody</b> with entry-by-entry verification, plus a standalone
+        offline verifier that recomputes the chain in the browser with no server and no network.</li>
+    <li><b>Optional Ed25519 entry signatures</b> and <b>RFC 3161 external timestamping</b>, which
+        together defeat the recompute attack — an attacker who edits one entry and re-hashes every
+        entry after it still produces a hash chain that verifies.</li>
+    <li><b>A calibrated scoring engine</b> combining independent indicators as likelihood ratios,
+        applying explicit penalties for contradicting evidence, and refusing to report a match below
+        a threshold calibrated against a measured false-positive rate.</li>
+    <li><b>Four real analysis engines</b>: a stylometry ensemble (n-gram cosine, Burrows' Delta,
+        LZW normalised compression distance), circadian inference, Bitcoin peel-chain clustering,
+        and the scoring engine itself.</li>
+    <li><b>Role-based access control</b> with per-key rate limiting, a <b>human-in-the-loop export
+        gate</b>, and configurable data-retention enforcement.</li>
+    <li><b>Standards-based export</b>: STIX 2.1 via the official OASIS library, CSV with
+        formula-injection defence, a sealed PDF certificate, and a portable custody ledger.</li>
+  </ul>
+
+  <div class="box box-warn">
+    <div class="bt">The single most important sentence in this report</div>
+    <p>Six of the ten modules currently receive curated benchmark inputs rather than live collected
+    evidence. The algorithms are real; the data feeding some of them is not. We have chosen to state
+    this plainly rather than let a demonstration imply otherwise, because a forensic tool that
+    overstates its own confidence is worse than no tool at all.</p>
+  </div>
+</section>
+
+<!-- ============================ 02 ============================ -->
+<section>
+  <h2><span class="num">02</span>The problem and how PS-26151 maps to it</h2>
+  <p class="lede">NTRO PS-26151 asks for dark web threat actor de-anonymization: identifying an
+  actor behind a pseudonym, from lawfully available evidence, in a way that survives challenge.</p>
+
+  <div class="cols3">
+    <div>
+      <h4>Fragmented</h4>
+      <p>Handles, PGP keys, wallets, TLS certificates, posting timestamps and marketplace listings
+      are collected by different people, stored in different systems, and rarely joined.</p>
+    </div>
+    <div>
+      <h4>Unprovable</h4>
+      <p>Naive correlation produces a guess. Without a stated method, a stated false-positive rate
+      and a stated evidentiary limit, an attribution is an assertion rather than a finding.</p>
+    </div>
+    <div>
+      <h4>Unauditable</h4>
+      <p>Conventional collection leaves no tamper-evident record of who observed what and when, so
+      the evidence can be challenged on process alone without any dispute about its content.</p>
+    </div>
+  </div>
+
+  <h3>Our position on scope</h3>
+  <p>AETHER does not attack Tor, does not break encryption, and does not access material an
+  authorised investigator is not permitted to hold. It performs correlation and records its own
+  reasoning. We consider the restraint a feature: the problem statement rewards lawful correlation
+  with explainable confidence, and any capability that would create legal exposure for the user
+  would also destroy the admissibility of everything else the system produces.</p>
+
+  <div class="box box-signal">
+    <div class="bt">Design consequence</div>
+    <p>Because the value of this system is that its output can be defended, every design decision
+    favours reproducibility over sophistication. A deterministic hash chain beats a probabilistic
+    model. A stated threshold with a measured false-positive rate beats a confident number with no
+    error estimate. A ledger that records "this was not measured" beats one that records a finding
+    the system did not actually produce.</p>
+  </div>
+</section>
+
+<!-- ============================ 03 ============================ -->
+<section>
+  <h2><span class="num">03</span>System architecture</h2>
+  <p class="lede">Three layers, with the custody chain as the invariant that binds them. The
+  console holds no evidence of its own; it reads from the store, and every write passes through the
+  chain, so the displayed state and the legal record cannot silently diverge.</p>
+
+  <figure>
+    <svg viewBox="0 0 900 400" style="width:100%;border:1px solid #cbd5e1;background:#f8fafc" xmlns="http://www.w3.org/2000/svg">
+      <defs>
+        <marker id="arw" markerWidth="9" markerHeight="7" refX="8" refY="3.5" orient="auto">
+          <polygon points="0 0, 9 3.5, 0 7" fill="#64748b"/>
+        </marker>
+      </defs>
+      <style>
+        .lb{font:700 11px 'Segoe UI',sans-serif;fill:#0f172a;letter-spacing:.04em}
+        .ls{font:400 9.5px 'Segoe UI',sans-serif;fill:#64748b}
+        .box{fill:#fff;stroke:#cbd5e1;stroke-width:1.2}
+        .hd{fill:#0f172a}
+        .chain{fill:#f0fdf4;stroke:#15803d;stroke-width:1.6}
+      </style>
+
+      <!-- layer 1 -->
+      <rect class="box" x="20" y="34" width="860" height="86" rx="2"/>
+      <rect x="20" y="34" width="4" height="86" fill="#0f172a"/>
+      <text class="lb" x="36" y="54">LAYER 1 · ANALYST CONSOLE — Next.js 16 / React 19</text>
+      <rect class="box" x="36" y="64" width="188" height="42"/><text class="ls" x="48" y="82">Case workspace</text><text class="ls" x="48" y="96">provenance badges, gauges</text>
+      <rect class="box" x="236" y="64" width="188" height="42"/><text class="ls" x="248" y="82">Knowledge graph</text><text class="ls" x="248" y="96">3D entity relationships</text>
+      <rect class="box" x="436" y="64" width="188" height="42"/><text class="ls" x="448" y="82">Stylometry lab</text><text class="ls" x="448" y="96">document comparison</text>
+      <rect class="box" x="636" y="64" width="228" height="42"/><text class="ls" x="648" y="82">Offline verifier</text><text class="ls" x="648" y="96">reads exported ledger only</text>
+
+      <!-- layer 2 -->
+      <rect class="box" x="20" y="152" width="860" height="86" rx="2"/>
+      <rect x="20" y="152" width="4" height="86" fill="#0f172a"/>
+      <text class="lb" x="36" y="172">LAYER 2 · ANALYSIS ENGINE — FastAPI, 10 modules, async + SSE</text>
+      <rect class="box" x="36" y="182" width="268" height="42"/><text class="ls" x="48" y="200">10 forensic modules</text><text class="ls" x="48" y="214">run concurrently, stream state</text>
+      <rect class="box" x="316" y="182" width="268" height="42"/><text class="ls" x="328" y="200">Scoring engine</text><text class="ls" x="328" y="214">LR fusion + conflict penalty</text>
+      <rect class="box" x="596" y="182" width="268" height="42"/><text class="ls" x="608" y="200">Export gate</text><text class="ls" x="608" y="214">human-in-the-loop release</text>
+
+      <!-- layer 3 -->
+      <rect class="box" x="20" y="270" width="860" height="86" rx="2"/>
+      <rect x="20" y="270" width="4" height="86" fill="#0f172a"/>
+      <text class="lb" x="36" y="290">LAYER 3 · EVIDENCE STORE — PostgreSQL / SQLite</text>
+      <rect class="box" x="36" y="300" width="268" height="42"/><text class="ls" x="48" y="318">Cases &amp; evidence</text><text class="ls" x="48" y="332">per-row provenance tags</text>
+      <rect x="316" y="300" width="268" height="42" class="chain"/><text class="ls" x="328" y="318" style="fill:#15803d;font-weight:700">Custody chain</text><text class="ls" x="328" y="332" style="fill:#15803d">SHA-256 hash-linked, signed</text>
+      <rect class="box" x="596" y="300" width="268" height="42"/><text class="ls" x="608" y="318">Audit log</text><text class="ls" x="608" y="332">investigator actions</text>
+
+      <!-- arrows -->
+      <line x1="130" y1="120" x2="130" y2="150" stroke="#64748b" stroke-width="1.3" marker-end="url(#arw)"/>
+      <line x1="450" y1="120" x2="450" y2="150" stroke="#64748b" stroke-width="1.3" marker-end="url(#arw)"/>
+      <line x1="750" y1="224" x2="750" y2="298" stroke="#15803d" stroke-width="1.4" marker-end="url(#arw)"/>
+      <line x1="450" y1="224" x2="450" y2="298" stroke="#64748b" stroke-width="1.3" marker-end="url(#arw)"/>
+      <line x1="170" y1="224" x2="170" y2="298" stroke="#64748b" stroke-width="1.3" marker-end="url(#arw)"/>
+      <path d="M 750 120 C 830 120, 860 150, 850 200" stroke="#15803d" stroke-width="1.3" stroke-dasharray="4 3" fill="none" marker-end="url(#arw)"/>
+      <text class="ls" x="880" y="374" text-anchor="end" style="fill:#15803d;font-weight:700">offline verification path — no server, no trust required</text>
+    </svg>
+    <figcaption><b>Figure 1.</b> AETHER system architecture. Solid arrows are the live request path;
+    the dashed green arrow is the offline verification path, where an exported ledger is checked by
+    a static page with no network access.</figcaption>
+  </figure>
+
+  <h3>Why the chain sits inside the architecture, not beside it</h3>
+  <p>The common failure in forensic tooling is that the audit trail is produced by a separate
+  subsystem, so it can disagree with the system it is meant to describe. Here the chain is written
+  by the same call path that performs the action. There is no interface at which evidence is
+  recorded but the chain is not, and no interface at which the chain is advanced without an action.</p>
+</section>
+
+<!-- ============================ 04 ============================ -->
+<section>
+  <h2><span class="num">04</span>The ten analysis modules</h2>
+  <p class="lede">Each module is a real algorithm. The table separates the algorithm from the
+  demonstration input, because those are different claims and only one of them is currently
+  load-bearing.</p>
+
+  <table>
+    <thead>
+      <tr><th style="width:30mm">Module</th><th>Technique implemented</th><th style="width:26mm">Input in demo config</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><b>Stylometry</b></td>
+        <td>Char-3gram and word-ngram cosine, Burrows' Delta over most-frequent-word profiles, LZW normalised compression distance, Unicode script profiling. Refuses Burrows' Delta below a 40-token minimum and reports the ensemble as <i>degraded</i> rather than substituting a value.</td>
+        <td><span class="tag t-signal">Analyst-supplied</span></td>
+      </tr>
+      <tr>
+        <td><b>Diurnal / Circadian</b></td>
+        <td>Sleep-trough detection over a timestamp series, operational timezone inference by correlation against regional activity profiles.</td>
+        <td><span class="tag t-warn">Benchmark</span></td>
+      </tr>
+      <tr>
+        <td><b>Bitcoin peel chain</b></td>
+        <td>Multi-input co-spend clustering to trace a transaction back through change addresses to a convergence point.</td>
+        <td><span class="tag t-warn">Benchmark</span></td>
+      </tr>
+      <tr>
+        <td><b>Attribution scoring</b></td>
+        <td>Log-likelihood-ratio fusion of independent indicators with configurable prior odds, contradiction penalties, and a reporting threshold calibrated against measured false-positive rate.</td>
+        <td><span class="tag t-warn">Derived</span></td>
+      </tr>
+      <tr>
+        <td><b>Certificate Transparency</b></td>
+        <td>Log disclosure enumeration and overlap detection between subject identifiers and issued certificates.</td>
+        <td><span class="tag t-signal">Live-capable</span></td>
+      </tr>
+      <tr>
+        <td><b>PGP / OSINT</b></td>
+        <td>RFC 4880 fingerprint normalisation and validation; provider intelligence client for Shodan, Censys and crt.sh with per-record provenance tagging.</td>
+        <td><span class="tag t-signal">Live-capable</span></td>
+      </tr>
+      <tr>
+        <td><b>JARM TLS</b></td>
+        <td>TLS fingerprint evaluation with commodity-certificate detection. Correctly refuses to treat a shared commodity certificate as identifying, and downgrades the resulting evidence accordingly.</td>
+        <td><span class="tag t-info">Passive</span></td>
+      </tr>
+      <tr>
+        <td><b>Origin IP &amp; leak</b></td>
+        <td>Correlation of server banner and leak artefacts to a clearnet origin, with autonomous-system attribution.</td>
+        <td><span class="tag t-warn">Benchmark</span></td>
+      </tr>
+      <tr>
+        <td><b>Favicon mmh3</b></td>
+        <td>MurmurHash3 computation over the favicon payload for correlation against indexed facet data.</td>
+        <td><span class="tag t-warn">Benchmark</span></td>
+      </tr>
+      <tr>
+        <td><b>Visual branding dHash</b></td>
+        <td>Perceptual logo comparison. <b>Known weakness:</b> the current implementation samples raw bytes rather than performing true image decoding and gradient comparison.</td>
+        <td><span class="tag t-warn">Benchmark</span></td>
+      </tr>
+    </tbody>
+  </table>
+
+  <div class="box box-signal">
+    <div class="bt">Provenance tagging</div>
+    <p>Every evidence record carries one of <code>LIVE_SOURCE</code>, <code>DEMO_DATA</code>,
+    <code>STATIC_OSINT</code> or <code>SOURCE_UNAVAILABLE</code>. A module that did not run does
+    not produce a <code>LIVE_SOURCE</code> row, and an unavailable provider produces
+    <code>SOURCE_UNAVAILABLE</code> rather than a silent omission. The intent is that a reviewer can
+    determine the origin of any single figure without reading our source code.</p>
+  </div>
+</section>
+
+<!-- ============================ 05 ============================ -->
+<section>
+  <h2><span class="num">05</span>Chain of custody and independent verification</h2>
+  <p class="lede">This is the capability we consider genuinely differentiating, and the one a judge
+  can test unaided in under a minute without trusting anything we say.</p>
+
+  <h3>How the chain is constructed</h3>
+  <p>Each custody entry commits to the hash of the entry before it. The digest for entry
+  <i>n</i> is computed over the canonical serialisation of that entry's contents together with the
+  stored hash of entry <i>n−1</i>. Altering any historical entry therefore invalidates every
+  subsequent digest, and the break point is identifiable to the exact block.</p>
+
+  <figure>
+    <img src="02-custody-real.png" alt="Custody ledger for case AT-2026-4186" />
+    <figcaption><b>Figure 2.</b> Case <span class="mono">AT-2026-4186</span> as stored in the
+    database. Twelve blocks, each carrying its own SHA-256 digest, timestamp and responsible actor.
+    Note that this is a genuine database record, not a mock: the block count, the seal and the
+    entry-by-entry digests are the values the verify endpoint returns.</figcaption>
+  </figure>
+
+  <div class="box box-alert">
+    <div class="bt">Disclosure — blocks 4, 6 and 9</div>
+    <p>The ledger above contains three entries whose wording asserts a finding that no measurement
+    produced: a Shodan cluster match on a fixed favicon hash, a claim that a PGP key was
+    "reused across 3 darknet forums", and a visual similarity computed between two hardcoded
+    strings. The chain is cryptographically valid, which is precisely what makes this a defect
+    worth flagging: <b>an unbroken hash chain over unmeasured content lends false confidence.</b>
+    Correcting this is priority one in Section 10.</p>
+  </div>
+
+  <h3>Independent verification, offline</h3>
+  <p>The exported ledger can be verified by a standalone page that runs entirely in the browser. No
+  server, no network calls, no identifier, and no key material from us is transferred. The
+  verification is a technical integrity finding and is explicitly <i>not</i> a certificate of
+  authenticity — a distinction the tool itself states on screen.</p>
+
+  <div class="fig-pair">
+    <figure>
+      <img src="06-verifier-clean.png" alt="Offline verifier, intact chain" />
+      <figcaption><b>Figure 3.</b> Intact ledger. Every entry's stored digest equals the digest
+      recomputed from its own contents, and each references its predecessor.</figcaption>
+    </figure>
+    <figure>
+      <img src="07-verifier-tampered.png" alt="Offline verifier, tampered chain" />
+      <figcaption><b>Figure 4.</b> One byte altered in entry 2. The chain is reported broken
+      at <span class="mono">seq 2</span>, with the recomputed and stored digests shown side by side
+      for every entry.</figcaption>
+    </figure>
+  </div>
+
+  <div class="box box-info">
+    <div class="bt">Why a hash chain alone is insufficient</div>
+    <p>A determined editor can alter entry 2 and recompute entries 2, 3 and 4, producing a chain
+    that verifies perfectly. Hash chaining defeats <i>undetected</i> tampering, not determined
+    tampering. This is why the system also supports <b>Ed25519 signatures per entry</b> and
+    <b>RFC 3161 external timestamps</b>: an attacker who cannot produce the private key cannot
+    forge a valid signature, and an attacker who cannot reach an external timestamp authority cannot
+    backdate one. The verifier's optional signature check exists for exactly this scenario.</p>
+  </div>
+
+  <h3>Statutory framing</h3>
+  <p>The ledger is designed against the electronic-evidence requirements of Section 63 of the
+  Bharatiya Sakshya Adhiniyam, 2023 (formerly s.65B of the Indian Evidence Act, 1872). The verifier
+  states the consequence of a broken chain in those terms: a file in that state cannot satisfy the
+  section and must be re-obtained from the investigating officer.</p>
+</section>
+
+<!-- ============================ 06 ============================ -->
+<section>
+  <h2><span class="num">06</span>Explainable attribution confidence</h2>
+  <p class="lede">A single confidence number is the least useful thing a forensic tool can output.
+  Ours is designed to be interrogated: every input, every penalty, and the reason for declining to
+  report are all visible.</p>
+
+  <figure>
+    <img src="01-overview-real.png" alt="Case workspace showing provenance, confidence and diurnal analysis" />
+    <figcaption><b>Figure 5.</b> Case workspace for <span class="mono">AT-2026-4186</span>. The
+    provenance badges at the top state how many findings are live, benchmark and unavailable. The
+    confidence card and the gauge both read from the same score, so the two cannot disagree.</figcaption>
+  </figure>
+
+  <div class="cols">
+    <div>
+      <h4>Fusion, not a black box</h4>
+      <p>Independent indicators are combined as likelihood ratios rather than averaged into an
+      opaque score. Each indicator's own contribution is reported, so a reviewer can see whether a
+      conclusion rests on one strong signal or several weak ones — a distinction that matters
+      entirely when the result is challenged.</p>
+    </div>
+    <div>
+      <h4>Contradiction costs you</h4>
+      <p>Indicators that point against the hypothesis apply an explicit penalty and are listed
+      separately rather than being quietly dropped. A high score carrying contradictions is
+      visibly different from a clean one, and the penalty is shown as a figure on the card.</p>
+    </div>
+  </div>
+
+  <div class="box box-signal">
+    <div class="bt">Calibration and the refusal to report</div>
+    <p>The reporting threshold is set against a measured false-positive rate rather than chosen by
+    judgement. When a result falls below it, the system reports
+    <span class="mono">POSSIBLE MATCH (below reporting threshold)</span> and declines to attribute.
+    In the demonstration case the stylometry module scored 23.8% against a corpus and correctly
+    reported itself as below threshold — an engine that cannot say "I don't know" is not an engine
+    a court should rely on.</p>
+  </div>
+
+  <h3>Known weakness in the current scoring</h3>
+  <p>The demonstration case returns a saturated 100% confidence while its strongest individual
+    indicator is well below threshold. This indicates that the fusion is currently dominated by
+  modules whose inputs are fixed benchmark values, so agreement between them is not independent
+  corroboration. Capping the score and reporting an explicit evidence-strength measure are both on
+  the roadmap; we would rather disclose the saturation than let a rounded number imply more than
+  the evidence supports.</p>
+
+  <div class="fig-pair">
+    <figure>
+      <img src="03-graph-real.png" alt="Three-dimensional entity knowledge graph" />
+      <figcaption><b>Figure 6.</b> Entity relationship graph rendered from the backend's STIX
+      bundle. Node and edge counts correspond to the case record.</figcaption>
+    </figure>
+    <figure>
+      <img src="04-stylometry.png" alt="Stylometry laboratory" />
+      <figcaption><b>Figure 7.</b> Stylometry laboratory. Comparison requires the analyst to supply
+      both documents; the system computes cosine, Burrows' Delta and LZW-NCD on genuine input and
+      reports which methods were gated out.</figcaption>
+    </figure>
+  </div>
+</section>
+
+<!-- ============================ 07 ============================ -->
+<section>
+  <h2><span class="num">07</span>Security, access control and data governance</h2>
+  <p class="lede">A tool that handles live criminal intelligence is itself a target. The controls
+  below address both hostile input and the risk of the tool deanonymizing its own operator.</p>
+
+  <table>
+    <thead><tr><th style="width:46mm">Control</th><th>Implementation</th></tr></thead>
+    <tbody>
+      <tr><td><b>Role-based access</b></td><td>Multi-key authentication with distinct <code>investigator</code> and <code>auditor</code> roles. Write access and export-affirmation rights are enforced separately, so a read-only auditor cannot release a dossier.</td></tr>
+      <tr><td><b>Human-in-the-loop export</b></td><td>STIX, CSV and PDF exports return <code>409</code> until an investigator with the correct role affirms release. The affirmation is itself written into the custody chain, so the release is as auditable as the analysis. The custody ledger export is deliberately <i>not</i> gated, so third parties can audit the chain that judges our own work.</td></tr>
+      <tr><td><b>Operator OPSEC</b></td><td>Direct fetches of <code>.onion</code> targets are refused outright to prevent DNS leakage and investigator deanonymization. Tor SOCKS5 routing is used for any authorised probe, and active probing is disabled by default.</td></tr>
+      <tr><td><b>SSRF guard</b></td><td>Target validation rejects loopback, private, link-local and cloud metadata address ranges, with the rejection reason surfaced to the caller.</td></tr>
+      <tr><td><b>Credential handling</b></td><td>Timing-safe API key comparison, per-key and per-IP rate limiting, strict request payload limits, and hardened response headers.</td></tr>
+      <tr><td><b>Data retention</b></td><td>Configurable retention period with an enforced purge path. Every purge is recorded in the audit log, so deletion is itself auditable.</td></tr>
+      <tr><td><b>Export safety</b></td><td>CSV export defends against spreadsheet formula injection, which is a realistic vector when an analyst opens a dossier in Excel.</td></tr>
+    </tbody>
+  </table>
+
+  <div class="box box-warn">
+    <div class="bt">Known gap</div>
+    <p>Identities are currently API keys, not named accounts. There is no per-user login, and the
+    audit trail records an operator label rather than an authenticated individual. For an agency
+    deployment this is insufficient: attribution of an action to a named officer is a
+    requirement, not a convenience. Named accounts mapped onto the existing role checks are the
+    first item in the security roadmap.</p>
+  </div>
+</section>
+
+<!-- ============================ 08 ============================ -->
+<section>
+  <h2><span class="num">08</span>Engineering quality and deployment</h2>
+  <p class="lede">The claims in this section are the ones a reviewer can check in under five
+  minutes without any of our involvement.</p>
+
+  <div class="metrics">
+    <div class="metric g"><div class="v">470</div><div class="l">Tests passing</div></div>
+    <div class="metric g"><div class="v">0</div><div class="l">Type errors</div></div>
+    <div class="metric g"><div class="v">0</div><div class="l">Lint errors</div></div>
+    <div class="metric g"><div class="v">1</div><div class="l">Command to deploy</div></div>
+  </div>
+
+  <h3>Test coverage of substance</h3>
+  <p>The suite is not a smoke test. It includes contract tests asserting that intel providers honour
+  their declared provenance in both live and mock modes, golden-file tests pinning the exact STIX and
+  CSV export bytes, calibration tests over the scoring engine, verification tests that confirm a
+  deliberately tampered chain is rejected at the correct block, and a test that asserts the root and
+  frontend copies of the offline verifier remain byte-identical.</p>
+
+  <h3>Deployment</h3>
+  <p>The entire stack — PostgreSQL, a Tor proxy, the FastAPI service and the console — starts with a
+  single command. The container image defaults to mock intelligence mode, so a fresh deployment
+  makes no outbound requests and contacts no third party unless an operator explicitly supplies
+  credentials and opts in.</p>
+
+  <pre>Copy-Item .env.example .env
+docker compose up --build -d      # console on :3000, API on :8000</pre>
+  <div class="fn">Zero environment configuration is required to run the demonstration. The image
+  sets the intel mode to mock and the active-probe flag to false by default.</div>
+
+  <h3>Interface quality work completed this cycle</h3>
+  <p>The console was rebuilt against an explicit token system during this cycle. Before: 500
+  hard-coded colour values bypassing the design tokens, 125 unique hex codes for what should have
+  been roughly thirty tokens, zero ARIA attributes in the entire application, nineteen form controls
+  with their focus indicator explicitly removed and nothing put back, and no reduced-motion
+  handling at all. After: every colour resolves to a token, keyboard focus is visible on every
+  control via a single inherited rule, the diurnal chart is reachable and navigable by keyboard, and
+  the only remaining motion is the live-source pulse, which is held steady rather than stopped under
+  reduced-motion preferences.</p>
+
+  <div class="fig-pair">
+    <figure>
+      <img src="05-dossier.png" alt="Export dossier with gated exports" />
+      <figcaption><b>Figure 8.</b> Judicial dossier view. Export controls reflect the release gate:
+      the dossier is prepared for release only after an authorised investigator affirms it.</figcaption>
+    </figure>
+    <figure>
+      <img src="08-mobile.png" alt="Console at mobile width" />
+      <figcaption><b>Figure 9.</b> The same workspace at 430&nbsp;px. The navigation rail becomes a
+      horizontal scroller and the analysis grid collapses to a single column with no horizontal
+      overflow.</figcaption>
+    </figure>
+  </div>
+</section>
+
+<!-- ============================ 09 ============================ -->
+<section>
+  <h2><span class="num">09</span>Honest status: real, benchmark, and defective</h2>
+  <p class="lede">This section is the one we expect to be read most carefully, and the one we
+  chose to write without a public-relations filter.</p>
+
+  <h3>What is real and demonstrable today</h3>
+  <ul>
+    <li>Hash-linked custody chain with entry-level verification, signature support and an offline verifier.</li>
+    <li>Four genuine analysis engines, calibrated scoring with contradiction penalties, and a stated false-positive rate.</li>
+    <li>Standards-based export: STIX 2.1, hardened CSV, sealed PDF certificate, portable custody ledger.</li>
+    <li>Role-based access, human-in-the-loop export release, retention enforcement, SSRF and OPSEC guards.</li>
+    <li>470 automated tests, clean type-check and lint, single-command containerised deployment.</li>
+  </ul>
+
+  <h3>What is benchmark, and labelled as such</h3>
+  <ul>
+    <li>Six modules execute real algorithms against curated fixture inputs. The pipeline completes
+        and produces the same result for a given fixture regardless of the target supplied.</li>
+    <li>No live dark web collection occurs. No module fetches an authorised
+        <code>.onion</code> target; the Tor proxy is present and wired for opt-in probing but is not
+        used for collection.</li>
+  </ul>
+
+  <h3>Defects we consider more serious than any missing feature</h3>
+
+  <div class="box box-alert">
+    <div class="bt">Defect 1 — the custody ledger seals unmeasured findings</div>
+    <p>When a module fails or runs on a fixture, the ledger still records a confident narrative
+    sentence describing a result that was never produced. Three such entries are visible in
+    Figure 2. Because the chain verifies, a reviewer inspecting only the hashes would conclude the
+    record is sound. The fix is that a module which did not measure must either append an entry
+    stating that it did not measure, or append nothing at all.</p>
+  </div>
+
+  <div class="box box-alert">
+    <div class="bt">Defect 2 — the console fabricates a complete case when the backend is unreachable</div>
+    <p>With the API down, the interface renders a full, confident, entirely fictional case
+    including a custody chain with plausible hashes. This is visible in Figure 10. It contradicts
+    our own stated rule that the system shows <code>SOURCE UNAVAILABLE</code> rather than invented
+    data, and it is the single most damaging thing in the product: the most impressive-looking
+    screen is the least honest one. The demonstration key
+    <span class="mono">AT-2026-0047</span> referenced by the default view does not exist in the
+    database at all.</p>
+  </div>
+
+  <div class="box box-warn">
+    <div class="bt">Defect 3 — opening a case re-runs the pipeline and rewrites its evidence</div>
+    <p>The case retrieval endpoint executes the full analysis rather than reading stored results, and
+    in doing so clears the case's existing evidence records before regenerating them. Evidence that
+    changes when an analyst merely looks at it is not evidence, and a score that can change after
+    the fact cannot be defended.</p>
+  </div>
+
+  <div class="box box-warn">
+    <div class="bt">Defect 4 — audit coverage is narrower than the interface implies</div>
+    <p>An audit-logging function exists but is never invoked. Only five action types are ever
+    recorded: pipeline execution, retention purge, job start, chain verification, and investigation
+    start. Viewing a case, appending a custody entry and affirming an export are not audited, which
+    is a significant gap for a system whose central claim is chain of custody.</p>
+  </div>
+
+  <div class="box box-warn">
+    <div class="bt">Defect 5 — signing and external anchoring are implemented but switched off</div>
+    <p>Of 197 custody entries in the development database, zero carry a cryptographic signature,
+    and all 92 checkpoints use internal self-anchoring. The capability is complete and activates
+    through configuration, but until a reviewer sees one signed entry and one external timestamp,
+    the custody claim is weaker than the documentation implies.</p>
+  </div>
+
+  <figure>
+    <img src="02-custody.png" alt="Fabricated fallback custody chain rendered when the API is unavailable" />
+    <figcaption><b>Figure 10.</b> Defect 2, reproduced. This entire ledger — timestamps, actors,
+    block hashes and a cryptographic seal — is generated in the browser because the case does not
+    exist on the server. It is indistinguishable from Figure 2 to a reader who does not know. This
+    is the clearest possible argument for our position that provenance labelling is a correctness
+    requirement rather than a presentation nicety.</figcaption>
+  </figure>
+
+  <h3>Not implemented at all</h3>
+  <p>Live Tor collection for authorised targets; live intelligence keys inside the pipeline;
+  cross-case graph querying beyond generated Cypher text; full-text search across stored evidence;
+  a trained stylometry model; and named investigator accounts.</p>
+</section>
+
+<!-- ============================ 10 ============================ -->
+<section>
+  <h2><span class="num">10</span>Roadmap</h2>
+  <p class="lede">Ordered so that truth is established before capability is added. Nothing in
+  phase two should begin until phase one is complete and the suite is green.</p>
+
+  <table>
+    <thead><tr><th style="width:16mm">Phase</th><th style="width:30mm">Effort</th><th>Work</th><th style="width:44mm">Demonstrable outcome</th></tr></thead>
+    <tbody>
+      <tr>
+        <td><b>1</b></td><td>3–5 days</td>
+        <td>Rebuild every custody string from a value the engine actually produced; make retrieval
+        read stored results; wire the unused audit function into case view, evidence append and
+        export affirm; replace the offline fallback with an explicit empty state; remove the
+        development key from the client bundle; relabel analyst-supplied inputs.</td>
+        <td>Open any case: every ledger line is either a real measurement or an explicit statement
+        that none was made.</td>
+      </tr>
+      <tr>
+        <td><b>2</b></td><td>1–2 weeks</td>
+        <td>Tor SOCKS5 collection for authorised targets; live favicon and JARM computation from
+        real responses; Shodan, Censys and crt.sh with real keys; investigator-supplied timestamps
+        and transactions throughout. Enable signing and external timestamping.</td>
+        <td>Provenance reads <span class="mono">LIVE_SOURCE</span> because a request happened, and
+        the chain carries signatures.</td>
+      </tr>
+      <tr>
+        <td><b>3</b></td><td>1–2 weeks</td>
+        <td>Stored-result retrieval completed properly; cross-case search; optional graph database
+        import for large-graph queries; named accounts mapped onto existing role checks.</td>
+        <td>Old cases open instantly and identically; cross-case search works.</td>
+      </tr>
+      <tr>
+        <td><b>4</b></td><td>1 week</td>
+        <td>Sealed court-style PDF with the complete evidence table; deployment verification against
+        PostgreSQL; rehearsed demonstration on a clearly labelled benchmark case.</td>
+        <td>A complete, deployable and honest submission.</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <div class="box box-signal">
+    <div class="bt">What we will not build</div>
+    <p>A crawler that touches unauthorised targets, a scraping shortcut that bypasses lawful access,
+    or any control implying that we attack Tor or break encryption. These create legal exposure for
+    the investigating agency rather than earning points, and they would invalidate the admissibility
+    of everything else the system produces. PS-26151 rewards lawful correlation and explainable
+    confidence, which is what the four phases above deliver.</p>
+  </div>
+
+  <h3>Closing position</h3>
+  <p>AETHER has a real forensic backbone: a verifiable custody chain with independent offline
+  verification, four genuine analysis engines, a calibrated and inspectable scoring model,
+  standards-based export, and role-based control over release. It runs today on clearly labelled
+  benchmark data.</p>
+  <p>Two statements are both true and we make both openly. The pipeline's algorithms are real while
+  several of its inputs are fixtures; and the custody ledger currently seals sentences that no
+  measurement produced. The first is a data-source problem solvable with API keys. The second is a
+  correctness problem, it undermines the artifact the entire admissibility argument rests on, and it
+  is the first thing we fix.</p>
+</section>
+
+<!-- ============================ APPENDIX ============================ -->
+<section>
+  <h2><span class="num">A</span>Appendix — reproduction and verification</h2>
+
+  <h3>A.1 Running the system</h3>
+  <pre>git clone https://github.com/varun2507027108-oss/aether-threat-attribution
+cd aether-threat-attribution
+
+# containerised, full stack
+Copy-Item .env.example .env
+docker compose up --build -d
+
+# or from source
+cd aether-backend
+python -m venv .venv
+.\.venv\Scripts\pip.exe install -r requirements-dev.txt
+.\.venv\Scripts\python.exe migrate_db.py
+.\.venv\Scripts\python.exe -m uvicorn app.main:app --port 8000</pre>
+
+  <h3>A.2 Reproducing the test suite</h3>
+  <pre>cd aether-backend
+.\.venv\Scripts\pytest.exe -q          # 470 passed
+
+cd ..\aether-frontend
+npm ci
+npm run lint                          # 0 problems
+npm run build</pre>
+
+  <h3>A.3 Reproducing the tamper demonstration</h3>
+  <ol>
+    <li>Open a case and export the custody ledger.</li>
+    <li>Open <span class="mono">/verify.html</span> — a static page, no server required.</li>
+    <li>Load the exported file; confirm every entry reports as consistent.</li>
+    <li>Alter a single character in any entry after the first.</li>
+    <li>Reload. The chain reports broken at that sequence number, with recomputed and stored digests
+        shown side by side.</li>
+  </ol>
+
+  <h3>A.4 Verifying the claims made in Section 9</h3>
+  <table>
+    <thead><tr><th style="width:52mm">Claim</th><th>How to check it</th></tr></thead>
+    <tbody>
+      <tr><td>Zero signed custody entries</td><td>Query the database: <code>SELECT COUNT(*) FROM custody_entries WHERE signature != ''</code></td></tr>
+      <tr><td>Fallback fabricates a case</td><td>Stop the backend, load the console, observe a complete case with a seal.</td></tr>
+      <tr><td>Retrieval re-runs the pipeline</td><td>Note the custody block count, open the case twice, and observe the audit log recording a further full analysis.</td></tr>
+      <tr><td>Audit function unused</td><td>Search for callers of the audit-logging function; none exist outside its own definition.</td></tr>
+      <tr><td>Provenance tags are honest</td><td>Inspect any evidence row's provenance field against whether a request was actually issued.</td></tr>
+    </tbody>
+  </table>
+
+  <div class="box box-info">
+    <div class="bt">Provenance of this document</div>
+    <p>Every figure in Section 9 was verified against the running system and its database rather
+    than against source code alone, and each carries a reproduction path in Appendix A.4. Where an
+    earlier internal assessment of this project proved incorrect, that correction is recorded rather
+    than quietly removed.</p>
+  </div>
+</section>
+
+</body>
+</html>
