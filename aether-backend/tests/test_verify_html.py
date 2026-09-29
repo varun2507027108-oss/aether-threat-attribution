@@ -78,6 +78,41 @@ def test_verify_html_is_copied_into_the_frontend_public_dir():
     assert "crypto.subtle.digest" in FRONTEND_COPY.read_text(encoding="utf-8")
 
 
+def test_the_two_verify_html_copies_are_byte_identical():
+    """The repo root and the Next.js public dir hold two copies of one file.
+
+    The root copy is the canonical one that the parity tests below extract and
+    execute, and the public copy is what the console actually serves. Nothing
+    generated the second one, so nothing kept them in step: the previous test
+    only asserted the served copy existed and contained one string, which stays
+    true no matter how far the two drift.
+
+    That failure mode is not cosmetic. An exported statutory certificate tells a
+    verifier to open "the zero-dependency browser verification utility", and the
+    console links to the served copy. If those are different files, a third
+    party runs a different verifier from the one this test suite validated — the
+    exact outcome the offline verifier exists to prevent.
+
+    Edit the root copy, then copy it across:
+        copy verify.html aether-frontend\\public\\verify.html   # Windows
+        cp verify.html aether-frontend/public/verify.html       # POSIX
+    """
+    canonical = VERIFY_HTML.read_bytes()
+    served = FRONTEND_COPY.read_bytes()
+    if canonical != served:
+        differing = [
+            i
+            for i, (a, b) in enumerate(zip(canonical, served))
+            if a != b
+        ]
+        first = differing[0] if differing else min(len(canonical), len(served))
+        raise AssertionError(
+            "verify.html has drifted between the repo root and the served copy. "
+            f"root={len(canonical)}B public={len(served)}B, "
+            f"{len(differing)} byte(s) differ, first at offset {first}."
+        )
+
+
 def test_verify_html_feature_detects_ed25519():
     html = VERIFY_HTML.read_text(encoding="utf-8")
     assert "Ed25519" in html

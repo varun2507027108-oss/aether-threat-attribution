@@ -731,14 +731,6 @@ export const KnowledgeGraphView: React.FC<KnowledgeGraphViewProps> = ({
     fitCamera();
   };
 
-  useEffect(() => {
-    // Exposed only so the layout can be measured from a headless browser. The
-    // graph instance is otherwise unreachable, and framing regressions here are
-    // invisible in a screenshot diff without numeric node positions.
-    const w = window as unknown as Record<string, unknown>;
-    w.__aetherGraph = graphRef.current;
-  });
-
   // The 3D handle has no centreAt(); the equivalent is pointing the camera's
   // look-at target at the node while leaving the orbit position alone.
   const lookAtNode = (node: ForceNode) => {

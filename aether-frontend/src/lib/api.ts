@@ -54,14 +54,6 @@ export interface WhoAmIResult {
 }
 
 /** State of the human-in-the-loop export gate for a dossier. */
-export interface ExportGateResult {
-  cleared: boolean;
-  dossier_hash: string;
-  confirmed_at: string | null;
-  confirmed_by: string | null;
-  confirmed_at_seq: number | null;
-}
-
 /**
  * Fetch the current identity and capabilities.
  *
@@ -74,19 +66,6 @@ export async function fetchWhoAmI(): Promise<WhoAmIResult | null> {
     const res = await fetch(`${API_BASE}/api/auth/whoami`, { headers: getAuthHeaders() });
     if (!res.ok) return null;
     return (await res.json()) as WhoAmIResult;
-  } catch {
-    return null;
-  }
-}
-
-/** Read the export gate state without satisfying it. */
-export async function fetchExportGate(evidenceId: string): Promise<ExportGateResult | null> {
-  try {
-    const res = await fetch(`${API_BASE}/api/cases/${evidenceId}/export/gate`, {
-      headers: getAuthHeaders(),
-    });
-    if (!res.ok) return null;
-    return (await res.json()) as ExportGateResult;
   } catch {
     return null;
   }
@@ -128,19 +107,6 @@ export async function confirmExport(
 export interface ApiStatus {
   online: boolean;
   service?: string;
-}
-
-/** One attribution indicator in the explainability payload (Phase 6). */
-export interface ScoringContribution {
-  indicator: string;
-  category: string;
-  raw_value: string | number | null;
-  stance: "supports" | "contradicts" | "neutral";
-  likelihood_ratio: number;
-  log_likelihood_ratio: number;
-  detail: string;
-  share_pct: number;
-  direction: "up" | "down" | "flat";
 }
 
 export interface StylometryMethodScores {
@@ -216,12 +182,6 @@ export interface DiurnalResult {
     primary_candidate_key: number;
     candidate_regions: string[];
   };
-}
-
-export interface AttributionScoreResult {
-  confidence_score: number;
-  confidence_tier: string;
-  breakdown: Record<string, unknown>;
 }
 
 export interface EvidenceRecord {
@@ -431,57 +391,6 @@ export async function runStylometryAnalysis(
       },
       shared_tokens_count: 24,
       shared_tokens_sample: ["escrow", "pgp", "payment", "onion", "bitcoin"],
-    },
-    isLive: false,
-  };
-}
-
-export async function runDiurnalAnalysis(
-  timestamps?: string[]
-): Promise<{ data: DiurnalResult; isLive: boolean }> {
-  const sampleTimestamps =
-    timestamps ||
-    Array.from({ length: 48 }, (_, i) => {
-      const hour = (5 + (i % 16)) % 24;
-      return `2026-09-14T${String(hour).padStart(2, "0")}:30:00Z`;
-    });
-
-  try {
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 2500);
-    const res = await fetch(`${API_BASE}/api/analysis/diurnal`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", ...getAuthHeaders() },
-      body: JSON.stringify({ timestamps: sampleTimestamps, window_size: 6 }),
-      signal: controller.signal,
-    });
-    clearTimeout(timeoutId);
-
-    if (res.ok) {
-      const data = await res.json();
-      return { data, isLive: true };
-    }
-  } catch (err) {
-    console.warn("Diurnal API unavailable, using client fallback:", err);
-  }
-
-  // Client fallback
-  return {
-    data: {
-      total_events: 48,
-      histogram: [0, 0, 0, 0, 1, 3, 5, 8, 12, 10, 9, 8, 7, 6, 8, 11, 7, 5, 4, 2, 1, 0, 0, 0],
-      sleep_trough: {
-        start_utc: 22,
-        end_utc: 4,
-        duration_hours: 6,
-        events_in_trough: 1,
-      },
-      estimated_timezone: {
-        offset_hours: 5.5,
-        formatted_offset: "UTC+05:30",
-        primary_candidate_key: 5.5,
-        candidate_regions: ["India Standard Time (IST)", "Sri Lanka"],
-      },
     },
     isLive: false,
   };
@@ -916,23 +825,6 @@ export interface StartInvestigationResponse {
   job?: InvestigationJobAccepted;
   data?: InvestigationResult;
   isLive: boolean;
-}
-
-export async function fetchJobSnapshot(
-  jobId: string
-): Promise<{ snapshot?: InvestigationJobSnapshot; isLive: boolean }> {
-  try {
-    const res = await fetch(`${API_BASE}/api/jobs/${jobId}`, {
-      headers: getAuthHeaders(),
-    });
-    if (res.ok) {
-      const snapshot: InvestigationJobSnapshot = await res.json();
-      return { snapshot, isLive: true };
-    }
-  } catch (err) {
-    console.warn("Fetch job snapshot error:", err);
-  }
-  return { isLive: false };
 }
 
 export function subscribeJobEvents(
