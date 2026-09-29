@@ -119,9 +119,9 @@ function truncateLabel(label: string): string {
   return label.length > MAX_LABEL_CHARS ? `${label.slice(0, MAX_LABEL_CHARS - 1)}…` : label;
 }
 
-function buildLabelSprite(node: ForceNode, radius: number): THREE.Sprite {
-  const fontPx = 40;
-  const padding = 20;
+function buildLabelSprite(node: ForceNode, radius: number, below: boolean): THREE.Sprite {
+  const fontPx = 44;
+  const padding = 14;
   const font = `600 ${fontPx}px ui-monospace, SFMono-Regular, Menlo, monospace`;
   const text = truncateLabel(node.label);
 
@@ -143,13 +143,37 @@ function buildLabelSprite(node: ForceNode, radius: number): THREE.Sprite {
     ctx.font = font;
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
-    ctx.fillStyle = "rgba(8, 11, 18, 0.82)";
-    ctx.fillRect(0, 0, width, height);
+    // No background plate. A filled rect behind the text leaves a visible
+    // rectangular tint floating over the scene, and with alpha blending on
+    // premultiplied edges it also softens the glyphs. The label sits above its
+    // own node against the canvas, which is dark enough to carry light text,
+    // and the accent bar below supplies the type-colour key.
     ctx.fillStyle = node.color;
-    ctx.fillRect(0, 0, 3, height);
-    ctx.fillStyle = "#e2e8f0";
-    ctx.fillText(text, width / 2, height / 2);
+    ctx.fillRect(0, height - 4, width, 4);
+    ctx.fillStyle = "#f1f5f9";
+    ctx.fillText(text, width / 2, height / 2 - 2);
+
     const texture = new THREE.CanvasTexture(canvas);
+    // A canvas is sRGB-encoded, but three.js r152+ enables ColorManagement by
+    // default and leaves Texture.colorSpace unset, which means "no conversion".
+    // The result is that these sRGB byte values are treated as linear and then
+    // re-encoded on output, so the label renders as washed-out grey instead of
+    // near-white and loses contrast against its own background. This is the
+    // documented r152 canvas-text regression.
+    texture.colorSpace = THREE.SRGBColorSpace;
+    // The canvas is deliberately sized to the text, so it is almost never a
+    // power of two in both dimensions. The three.js billboard manual specifies
+    // LinearFilter with clamped wrapping for exactly this case; the default
+    // LinearMipmapLinearFilter builds a mip chain, and the GPU drops to a lower
+    // mip for a sprite viewed at an angle, which is what smears the glyphs.
+    texture.minFilter = THREE.LinearFilter;
+    texture.magFilter = THREE.LinearFilter;
+    texture.generateMipmaps = false;
+    texture.wrapS = THREE.ClampToEdgeWrapping;
+    texture.wrapT = THREE.ClampToEdgeWrapping;
+    // Text at a shallow angle is the worst case for filtering, and the default
+    // of 1 samples the texture once.
+    texture.anisotropy = 8;
     texture.needsUpdate = true;
     (sprite.material as THREE.SpriteMaterial).map = texture;
   }
@@ -162,7 +186,10 @@ function buildLabelSprite(node: ForceNode, radius: number): THREE.Sprite {
   const maxWidth = radius * LABEL_WIDTH_IN_RADII;
   const shrink = naturalWidth > maxWidth ? maxWidth / naturalWidth : 1;
   sprite.scale.set(naturalWidth * shrink, labelHeight * shrink, 1);
-  sprite.position.set(0, radius + labelHeight * 0.95, 0);
+  // Alternate above/below so that adjacent nodes in a chain, which sit at
+  // similar heights, do not stack their labels on top of each other.
+  const offset = radius + labelHeight * 0.95;
+  sprite.position.set(0, below ? -offset : offset, 0);
   return sprite;
 }
 
@@ -555,12 +582,20 @@ export const KnowledgeGraphView: React.FC<KnowledgeGraphViewProps> = ({
   // of allocating a new one per node per rebuild.
   const spriteCache = useRef(new Map<string, THREE.Sprite>());
 
-  const getLabelSprite = React.useCallback((node: ForceNode) => {
+  // The label accessor is handed a node, not its position in the visible set, so
+  // the above/below alternation needs a lookup from the current graph data.
+  const nodeIndexRef = useRef(new Map<string, number>());
+  React.useEffect(() => {
+    nodeIndexRef.current = new Map(graphData.nodes.map((n, i) => [n.id, i]));
+  }, [graphData]);
+
+  const getLabelSprite = React.useCallback((node: ForceNode, index: number) => {
     const radius = nodeRadius(node);
-    const key = `${node.id}::${node.label}::${node.confidence}::${radius.toFixed(2)}`;
+    const below = index % 2 === 1;
+    const key = `${node.id}::${node.label}::${node.confidence}::${radius.toFixed(2)}::${below}`;
     const cached = spriteCache.current.get(key);
     if (cached) return cached;
-    const sprite = buildLabelSprite(node, radius);
+    const sprite = buildLabelSprite(node, radius, below);
     spriteCache.current.set(key, sprite);
     return sprite;
   }, []);
@@ -570,7 +605,11 @@ export const KnowledgeGraphView: React.FC<KnowledgeGraphViewProps> = ({
   // are pinned rather than inlined.
   const extendNode = React.useCallback(() => true, []);
   const attachLabel = React.useCallback(
-    (node: unknown) => getLabelSprite(node as ForceNode),
+    (node: unknown) => {
+      const typed = node as ForceNode;
+      const index = nodeIndexRef.current.get(typed.id) ?? 0;
+      return getLabelSprite(typed, index);
+    },
     [getLabelSprite],
   );
   const applyForces = React.useCallback((sim: unknown) => {
@@ -819,6 +858,13 @@ export const KnowledgeGraphView: React.FC<KnowledgeGraphViewProps> = ({
                 // Node radius carries the attribution confidence, so a
                 // weakly-linked entity visibly sits smaller than a confirmed one.
                 nodeRelSize={1}
+                // The library defaults this to 8, an 8x8 sphere. At the size
+                // these nodes now render that reads as a visibly faceted
+                // polygon rather than a sphere, most obvious on the silhouette
+                // against the near-black canvas. The geometry is cached per
+                // radius, so a higher segment count costs a handful of buffers
+                // for six nodes, not one per node.
+                nodeResolution={32}
                 nodeVal={readNodeVal}
                 nodeColor={readNodeColor}
                 // Always-on text, see buildLabelSprite.
