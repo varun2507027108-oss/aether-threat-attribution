@@ -4,6 +4,10 @@ import React, { useEffect, useRef, useState } from "react";
 import type { ToastSeverity } from "@/components/Toast";
 import dynamic from "next/dynamic";
 import * as THREE from "three";
+// The layout forces below are taken from the same d3-force-3d build that
+// three-forcegraph runs, so the collide and z forces are the real ones rather
+// than a look-alike from a second copy of the library.
+import { forceCollide, forceZ } from "d3-force-3d";
 import type {
   ForceGraphMethods,
   ForceGraphProps,
@@ -26,11 +30,10 @@ import { readTokensFor, useThemeName } from "@/lib/theme";
  */
 type ForceGraphComponent = (
   props: ForceGraphProps<ForceNode, LinkPayload> & {
-    ref?: React.MutableRefObject<GraphMethods | undefined>;
-    // The shipped d.ts declares d3Force only as an instance method and never as a
-    // prop, even though the component accepts and calls it. Declared here so the
-    // layout hook is type-checked rather than silently untyped.
-    d3Force?: (sim: unknown) => void;
+    // A callback ref, not a ref object: the layout forces have to be installed
+    // the instant the instance is handed over, because the graph is dynamically
+    // imported and a mount effect would still see a null ref.
+    ref?: (api: GraphMethods | undefined) => void;
   },
 ) => React.ReactElement | null;
 
@@ -267,10 +270,48 @@ function linkWidth(link: ForceLink): number {
 // change, and each rebuild would otherwise allocate a fresh GPU texture and
 // leave the previous one undisposed.
 const MAX_LABEL_CHARS = 22;
-const LABEL_WIDTH_IN_RADII = 6.5;
+// A label's world width is capped at LABEL_WIDTH_IN_RADII node radii, so this
+// constant is really the label-to-node size ratio. Legibility here is a ratio
+// problem, not an absolute one: the camera frames the whole graph, so a label
+// only reads well if it is a decent share of the graph's total extent. Spread
+// the layout out and every label shrinks on screen; keep it compact and the same
+// label is comfortably readable. The collide radius is derived from this value
+// so the two cannot drift apart.
+const LABEL_WIDTH_IN_RADII = 7.6;
+const LABEL_HEIGHT_IN_RADII = 0.78;
+const LABEL_FONT_PX = 44;
+const LABEL_PADDING_PX = 14;
+const LABEL_LINE_HEIGHT = 1.3;
+// A monospace advance is a fixed fraction of the font size, so the sprite width
+// can be predicted without a canvas. The renderer still measures the real text;
+// this is only used to size the collide radius, where a slight underestimate is
+// corrected by LABEL_FOOTPRINT_SAFETY.
+const MONO_ADVANCE = 0.6;
+const LABEL_FOOTPRINT_SAFETY = 1.15;
 
 function truncateLabel(label: string): string {
   return label.length > MAX_LABEL_CHARS ? `${label.slice(0, MAX_LABEL_CHARS - 1)}…` : label;
+}
+
+/**
+ * Half the world width of a node's label sprite, which is the minimum
+ * centre-to-centre distance at which two labels stop overprinting.
+ *
+ * This mirrors buildLabelSprite's sizing so the layout can never disagree with
+ * what is drawn: the sprite is `min(naturalWidth, radius * LABEL_WIDTH_IN_RADII)`
+ * and is centred under its node. The two are kept adjacent on purpose, because
+ * changing the label geometry without changing this brings the overlapping
+ * labels straight back.
+ */
+function labelFootprintRadius(node: ForceNode): number {
+  const radius = nodeRadius(node);
+  const chars = Math.min(truncateLabel(node.label).length, MAX_LABEL_CHARS);
+  const canvasWidth = chars * LABEL_FONT_PX * MONO_ADVANCE + LABEL_PADDING_PX * 2;
+  const canvasHeight = LABEL_FONT_PX * LABEL_LINE_HEIGHT;
+  const labelHeight = radius * LABEL_HEIGHT_IN_RADII;
+  const naturalWidth = (labelHeight * canvasWidth) / canvasHeight;
+  const spriteWidth = Math.min(naturalWidth, radius * LABEL_WIDTH_IN_RADII);
+  return Math.max(radius, (spriteWidth * LABEL_FOOTPRINT_SAFETY) / 2);
 }
 
 function buildLabelSprite(
@@ -279,8 +320,8 @@ function buildLabelSprite(
   below: boolean,
   ink: string,
 ): THREE.Sprite {
-  const fontPx = 44;
-  const padding = 14;
+  const fontPx = LABEL_FONT_PX;
+  const padding = LABEL_PADDING_PX;
   const font = `600 ${fontPx}px ui-monospace, SFMono-Regular, Menlo, monospace`;
   const text = truncateLabel(node.label);
 
@@ -288,7 +329,7 @@ function buildLabelSprite(
   if (measure) measure.font = font;
   const textWidth = measure ? Math.ceil(measure.measureText(text).width) : fontPx * 6;
   const width = textWidth + padding * 2;
-  const height = Math.ceil(fontPx * 1.3);
+  const height = Math.ceil(fontPx * LABEL_LINE_HEIGHT);
 
   const canvas = document.createElement("canvas");
   canvas.width = width;
@@ -343,7 +384,7 @@ function buildLabelSprite(
   // Height is tied to the node radius so labels keep their relative weight
   // whether the entity is a weakly-linked lead or a confirmed actor. Long labels
   // shrink uniformly rather than being squashed, so glyphs stay undistorted.
-  const labelHeight = radius * 0.72;
+  const labelHeight = radius * LABEL_HEIGHT_IN_RADII;
   const naturalWidth = (labelHeight * width) / height;
   const maxWidth = radius * LABEL_WIDTH_IN_RADII;
   const shrink = naturalWidth > maxWidth ? maxWidth / naturalWidth : 1;
@@ -808,15 +849,95 @@ export const KnowledgeGraphView: React.FC<KnowledgeGraphViewProps> = ({
     },
     [getLabelSprite],
   );
-  const applyForces = React.useCallback((sim: unknown) => {
-    const adjustable = sim as {
-      d3Force: (name: string) =>
-        | { strength?: (v: number) => unknown; distance?: (v: number) => unknown }
-        | undefined;
+
+  /**
+   * Installs the layout forces on the live graph instance.
+   *
+   * This used to be handed to the component as a `d3Force` prop, which looked
+   * right and did nothing: the library has no such prop. `d3Force` exists only
+   * as a method on the imperative handle, so the prop was dropped silently on
+   * the floor, and every value tuned here was inert. The graph therefore ran on
+   * d3's stock settings and the camera fit then magnified the resulting clump,
+   * which is what stacked the entities and overprinted their labels.
+   *
+   * It has to run against the ref, after the instance exists, and it has to
+   * reheat: registering a force does not restart a simulation that has already
+   * decayed to its alpha floor.
+   */
+  const applyForces = React.useCallback((api: GraphMethods) => {
+    type AdjustableForce = {
+      strength?: (v: number) => unknown;
+      distance?: (v: number) => unknown;
     };
-    adjustable.d3Force("charge")?.strength?.(-680);
-    adjustable.d3Force("link")?.distance?.(170);
+    const adjustable = api as unknown as {
+      // Overloaded: one argument gets a force, two set one. Both forms are
+      // needed, since charge and link are adjusted in place while collide and z
+      // are installed for the first time.
+      d3Force: (name: string, force?: unknown) => AdjustableForce | undefined;
+      d3ReheatSimulation?: () => unknown;
+    };
+
+    // Spread, not just separation, but only as much as the labels can afford:
+    // the camera frames the whole graph, so distance spent here is taken
+    // straight out of on-screen label size. Charge is the soft term that keeps
+    // unrelated entities from collapsing together; link distance is the hard
+    // one that holds a relation open; the collide radius below is what stops
+    // either of them pulling two labels on top of each other.
+    adjustable.d3Force("charge")?.strength?.(-300);
+    adjustable.d3Force("link")?.distance?.(78);
+
+    // The camera looks down +Z, so a 3D layout spends most of its separation on
+    // an axis the analyst cannot see: two nodes 200 units apart in depth land on
+    // the same pixels, and their labels overprint into one unreadable string.
+    // A pull toward z=0 keeps the depth that makes the view feel spatial while
+    // collapsing the part of it that was purely wasted overlap.
+    adjustable.d3Force("z", forceZ(0).strength(0.85));
+
+    // Separation measured against the LABEL footprint rather than the sphere.
+    // The sphere is 4.4-9.6 units across and the label is several times wider,
+    // so colliding on the sphere leaves labels free to overprint each other,
+    // which is the defect this exists to remove. Half the label width is the
+    // minimum centre-to-centre distance at which two labels stop touching.
+    adjustable.d3Force(
+      "collide",
+      forceCollide<ForceNode>()
+        .radius((n) => labelFootprintRadius(n))
+        .strength(0.85)
+        .iterations(2),
+    );
+
+    adjustable.d3ReheatSimulation?.();
   }, []);
+
+  /**
+   * The graph is a dynamically imported component, so at mount time the ref is
+   * still null and a mount effect would install nothing. A ref callback runs the
+   * moment the instance is actually handed over, which is the first point the
+   * forces can be applied to anything.
+   *
+   * Guarded by instance identity: React re-runs a callback ref whenever its
+   * identity changes, and reheating on every render would restart the layout
+   * continuously and leave it permanently mid-settle.
+   */
+  const forcesAppliedTo = useRef<GraphMethods | null>(null);
+  const setGraphRef = React.useCallback(
+    (api: GraphMethods | undefined) => {
+      graphRef.current = api;
+      if (api && forcesAppliedTo.current !== api) {
+        forcesAppliedTo.current = api;
+        applyForces(api);
+      }
+    },
+    [applyForces],
+  );
+
+  // Re-applied on new data, because the layout has to re-settle around the
+  // entities the analyst just filtered in or out.
+  useEffect(() => {
+    const api = graphRef.current;
+    if (!api) return;
+    applyForces(api);
+  }, [applyForces, graphData]);
 
   // Without this the library derives its camera distance from node COUNT alone
   // (`Math.cbrt(nodes.length) * CAMERA_DISTANCE2NODES_FACTOR`), which suits a
@@ -867,7 +988,7 @@ export const KnowledgeGraphView: React.FC<KnowledgeGraphViewProps> = ({
     // Fit both axes independently and take the stricter of the two, then leave
     // margin for the labels that sit above each node and for the depth of the
     // box, which also projects into the frame.
-    const margin = 1.34;
+    const margin = 1.16;
     const distance =
       Math.max(halfH / tanHalfFov, halfW / (tanHalfFov * Math.max(0.2, aspect))) * margin +
       halfD;
@@ -1080,7 +1201,7 @@ export const KnowledgeGraphView: React.FC<KnowledgeGraphViewProps> = ({
           >
             {dimensions.width > 0 && (
               <ForceGraph3D
-                ref={graphRef}
+                ref={setGraphRef}
                 graphData={graphData}
                 width={dimensions.width}
                 height={dimensions.height}
@@ -1105,15 +1226,10 @@ export const KnowledgeGraphView: React.FC<KnowledgeGraphViewProps> = ({
                 // Always-on text, see buildLabelSprite.
                 nodeThreeObject={attachLabel}
                 nodeThreeObjectExtend={extendNode}
-                // With no d3Force prop the layout uses d3 defaults, which
-                // collapse a seven-node graph into a ~60-unit blob with almost
-                // every node overlapping its neighbour. Charge and link distance
-                // set the spread. There is still no collide force, since d3-force
-                // is not a resolvable dependency here, so a strongly-linked pair
-                // of high-confidence nodes can still sit close; the link distance
-                // is well clear of the largest node diameter (19.2) to keep that
-                // pair readable.
-                d3Force={applyForces}
+                // Layout forces are installed through the ref in an effect
+                // (see applyForces) rather than here: d3Force is not a prop this
+                // library accepts, so passing one was silently discarded and the
+                // graph ran on d3's stock forces.
                 nodeLabel={(node: ForceNode) =>
                   // The library renders this string as innerHTML, so every
                   // interpolated value is an injection point. `label` and
