@@ -61,16 +61,27 @@ interface ModuleDefinition {
 }
 
 const ANALYSIS_MODULES: ModuleDefinition[] = [
-  { key: "favicon", name: "Favicon MurmurHash3 32-bit", desc: "Computing mmh3_32 and matching Shodan facet http.favicon.hash" },
-  { key: "server_status", name: "Infrastructure Origin Discovery", desc: "Probing clearnet host IP, ASN, Geolocation, and /server-status leak" },
-  { key: "tls_cert", name: "TLS Certificate Fingerprint", desc: "Extracting SHA-256 certificate fingerprint & clearnet cross-correlation" },
-  { key: "jarm", name: "JARM Active TLS Fingerprinting", desc: "Matching 62-char JARM fingerprint against known C2 and onion proxies" },
-  { key: "whois_dns", name: "DNS & ASN Infrastructure", desc: "Querying Shodan/Censys with strict LIVE / DEMO / UNAVAILABLE provenance" },
-  { key: "diurnal", name: "Diurnal Circadian Sleep Trough", desc: "Evaluating 24h UTC posting distribution to calculate operational offset" },
-  { key: "stylometry", name: "Stylometry NLP Cosine Engine", desc: "Vectorizing char 3-gram and word n-grams against threat actor corpus" },
-  { key: "crypto", name: "Bitcoin Peel-Chain Clustering", desc: "Running multi-input co-spend heuristics across 14 transaction outputs" },
-  { key: "pgp", name: "RFC 4880 PGP Fingerprint", desc: "Normalizing 40-char V4 key ID & checking cross-forum deterministic reuse" },
-  { key: "custody", name: "Cryptographic Custody Sealing", desc: "Generating Ed25519-signed SHA-256 tamper-evident ledger blocks" },
+  /*
+   * These are the ten checks a run performs, and they are the first thing a
+   * new user reads. The names said what the tool calls the technique; the
+   * descriptions were dense enough to read twice. Each name is now a plain
+   * description of the check, and each description says what it looks at.
+   *
+   * The technique names are not lost. Any run that matters cites them: the
+   * evidence log, the STIX export and the statutory certificate all record the
+   * module key and the technique behind it. This list is orientation, not the
+   * record.
+   */
+  { key: "favicon", name: "Site icon", desc: "Compares the icon on the website to other known sites" },
+  { key: "server_status", name: "Real server address", desc: "Finds where the address actually leads, and who is hosting it" },
+  { key: "tls_cert", name: "Encryption certificate", desc: "Reads the site's security certificate and matches it" },
+  { key: "jarm", name: "Server software", desc: "Checks what the server is running, and whether it matches known command servers" },
+  { key: "whois_dns", name: "Domain owner", desc: "Looks up who registered the domain, and notes where the data came from" },
+  { key: "diurnal", name: "Sleep-time pattern", desc: "Finds the hours with no posts, to work out their time zone" },
+  { key: "stylometry", name: "Writing style", desc: "Compares the writing against earlier samples from this suspect" },
+  { key: "crypto", name: "Bitcoin wallet trail", desc: "Follows the money to see which addresses are controlled together" },
+  { key: "pgp", name: "PGP key", desc: "Checks whether the same encryption key was used before" },
+  { key: "custody", name: "Seal the log", desc: "Signs the evidence log so any later change is detectable" },
 ];
 
 type ModuleStatus = "pending" | "running" | "done" | "failed" | "skipped";
@@ -699,9 +710,9 @@ export const NewInvestigationModal: React.FC<NewInvestigationModalProps> = ({
                 <div className="grid grid-cols-3 gap-2 text-xs font-mono">
                   {(
                     [
-                      ["auto", "Auto-detect", "Tries live sources, falls back to the benchmark corpus and says which it used."],
-                      ["live", "Live source only", "Refuses to use benchmark data. A source that cannot be reached is reported as unavailable, not substituted."],
-                      ["demo", "Demo benchmark", "Runs entirely against the local benchmark corpus. Every figure is tagged DEMO."],
+                      ["auto", "Automatic", "Tries real sources. If one cannot be reached, it uses the sample data instead and tells you which it used."],
+                      ["live", "Real sources only", "Never uses sample data. If a source cannot be reached, it says so rather than filling the gap."],
+                      ["demo", "Sample data only", "Uses the built-in sample data and nothing else. Everything it shows is marked as a sample."],
                     ] as const
                   ).map(([value, title, help]) => (
                     <label

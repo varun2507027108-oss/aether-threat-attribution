@@ -39,69 +39,69 @@ export const Sidebar: React.FC<SidebarProps> = ({
       key: "overview",
       icon: "fa-shapes",
       label: "Overview",
-      hint: "Recon telemetry & indicators",
+      hint: "Case summary",
       onClick: () => {
         onSelectTab("overview");
-        onShowToast("Overview", "Recon telemetry & forensic indicators.");
+        onShowToast("Overview", "Case summary and key findings.");
       },
     },
     {
       key: "graph",
       icon: "fa-diagram-project",
-      label: "Knowledge graph",
-      hint: "STIX 2.1 entity graph",
+      label: "Connections",
+      hint: "Who is linked to whom",
       onClick: () => {
         onSelectTab("graph");
-        onShowToast("Knowledge graph", "Interactive STIX 2.1 entity graph.");
+        onShowToast("Connections", "Who is linked to whom, and how.");
       },
     },
     {
       key: "circadian",
       icon: "fa-chart-simple",
-      label: "Diurnal engine",
-      hint: "UTC posting distribution",
+      label: "Online hours",
+      hint: "When they were active",
       onClick: onScrollDiurnal,
     },
     {
       key: "stylometry",
       icon: "fa-fingerprint",
-      label: "Stylometry lab",
-      hint: "Compare two documents",
+      label: "Writing style",
+      hint: "Compare two texts",
       onClick: onOpenStylometry,
     },
     {
       key: "suspects",
       icon: "fa-users-viewfinder",
-      label: "Target dossier",
-      hint: "Suspect profile sheet",
+      label: "Suspect",
+      hint: "Profile and findings",
       onClick: onOpenDossier,
     },
     {
       key: "custody",
-      icon: "fa-clock",
-      label: "Custody ledger",
-      hint: "Tamper-evident chain",
+      icon: "fa-scale-balanced",
+      label: "Evidence log",
+      hint: "Who handled what, and when",
       onClick: () => {
         onSelectTab("custody");
-        onShowToast("Custody ledger", "Tamper-evident custody chain.");
+        onShowToast("Evidence log", "Who handled the evidence, and when.");
       },
     },
   ];
 
   const footer: RailItem[] = [
     {
-      key: "config",
+      key: "settings",
       icon: "fa-sliders",
-      label: "Engine config",
-      hint: "Tor & backend settings",
+      label: "Settings",
+      hint: "Connection and proxy",
       onClick: onOpenConfig,
       footer: true,
     },
     {
       key: "shield",
       icon: "fa-shield-halved",
-      label: "Verify chain",
-      hint: "Check ledger integrity",
+      label: "Check log",
+      hint: "Make sure nothing was changed",
       onClick: onVerifyShield,
       footer: true,
     },

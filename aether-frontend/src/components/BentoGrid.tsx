@@ -29,7 +29,15 @@ export const BentoGrid: React.FC<BentoGridProps> = ({
 
   const scorePct = attribution ? `${attribution.confidence_score}%` : "94.8%";
   const scoreNum = attribution ? attribution.confidence_score : 94.8;
-  const confidenceTier = attribution?.confidence_tier || "DEFINITIVE JUDICIAL ATTRIBUTION";
+  /*
+   * The engine returns a legal-sounding tier label ("DEFINITIVE JUDICIAL
+   * ATTRIBUTION") and the interface used to print it verbatim next to a
+   * percentage. Two problems: it is jargon, and "judicial" is a claim about
+   * what a court will do with this, which no piece of software gets to make.
+   * The raw tier is still available in the data panel; the headline states
+   * what the score means instead.
+   */
+  const confidenceTier = attribution?.confidence_tier || "Very strong match";
   const currentActor = caseData?.actor_name || "ZeroTrace (APT-091)";
   const currentOriginIp = caseData?.origin_ip || "185.220.101.42";
   const currentTarget = caseData?.target_url || caseData?.onion_url || "http://p4lx7e22kq6dreadmarket.onion";
@@ -391,12 +399,12 @@ export const BentoGrid: React.FC<BentoGridProps> = ({
         {/* Pipeline progress -- bound to the real timeline the engine returns. */}
         <div className="matte-card p-5">
           <p className="text-xs font-semibold text-ink-dim uppercase tracking-wider">
-            Forensic Modules
+            Checks run
           </p>
           <h3 className="text-2xl font-bold text-ink mt-1 font-mono">
             {timelineEvents?.length ?? 0}{" "}
             <span className="text-xs font-normal text-ink-dim font-sans">
-              steps completed
+              checks finished
             </span>
           </h3>
           <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-ink-muted mt-1">
@@ -404,22 +412,22 @@ export const BentoGrid: React.FC<BentoGridProps> = ({
               className="fa-solid fa-network-wired text-[10px] text-ink-faint"
               aria-hidden="true"
             />
-            Cross-correlated by the investigation pipeline
+            Results compared against each other to find contradictions
           </span>
         </div>
 
         {/* Graph size -- real counts from the STIX bundle. */}
         <div className="matte-card p-5">
           <p className="text-xs font-semibold text-ink-dim uppercase tracking-wider">
-            Attributed Entities
+            People and accounts found
           </p>
           <h3 className="text-2xl font-bold text-ink mt-1 font-mono">
             {investigation?.graph?.node_count ?? 0}{" "}
-            <span className="text-xs font-normal text-ink-dim font-sans">nodes</span>
+            <span className="text-xs font-normal text-ink-dim font-sans">found</span>
           </h3>
           <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-ink-muted mt-1">
             <i className="fa-solid fa-diagram-project text-[10px] text-ink-faint" aria-hidden="true" />
-            {investigation?.graph?.edge_count ?? 0} deterministic relationships
+            {investigation?.graph?.edge_count ?? 0} confirmed connections
           </span>
         </div>
 
@@ -449,7 +457,7 @@ export const BentoGrid: React.FC<BentoGridProps> = ({
             94.8% that used to sit here contradicted it on every case. */}
         <div className="bg-info-surface p-5 border border-info-line text-ink flex flex-col justify-between relative overflow-hidden">
           <p className="text-xs font-medium text-ink-dim uppercase tracking-wider">
-            Confidence Index
+            Overall confidence
           </p>
           <h3 className="text-2xl font-bold text-ink mt-1 font-mono">
             {scorePct} <span className="text-xs font-normal text-ink-dim font-sans">Score</span>
@@ -459,10 +467,15 @@ export const BentoGrid: React.FC<BentoGridProps> = ({
                 className="fa-solid fa-scale-balanced text-[10px] text-ink-faint mt-px shrink-0"
                 aria-hidden="true"
               />
+              {/* This prints `judicial_admissibility` from the engine, which is
+                  a long sentence naming legal standards. It is a real field and
+                  the answer belongs on screen, so it is shown when present — but
+                  the fallback is now plain, rather than "Admissibility pending
+                  engine report", which is the same jargon twice. */}
               <span className="text-left max-w-[46ch]">
                 {attribution?.judicial_admissibility
                   ? attribution.judicial_admissibility
-                  : "Admissibility pending engine report"}
+                  : "Whether a court would accept this has not been assessed yet."}
               </span>
             </span>
         </div>
@@ -473,7 +486,10 @@ export const BentoGrid: React.FC<BentoGridProps> = ({
           className="matte-card p-6 lg:col-span-2 flex flex-col justify-between scroll-mt-24"
         >
           <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 mb-4">
-            <h2 className="text-base font-bold text-ink">Diurnal Activity &amp; Circadian Timeline</h2>
+            {/* "Diurnal" and "circadian" are two words for one idea, and neither
+            is plain English. The heading now states the question the chart
+            answers. */}
+        <h2 className="text-base font-bold text-ink">When were they online?</h2>
 
             <div
               role="group"
@@ -484,25 +500,25 @@ export const BentoGrid: React.FC<BentoGridProps> = ({
                 type="button"
                 aria-pressed={activeFilter === "monthly"}
                 onClick={() => setActiveFilter("monthly")}
-                className={`px-3 py-1.5 min-h-11 min-h-11 transition border ${
+                className={`px-3 py-1.5 min-h-11 transition border ${
                   activeFilter === "monthly"
                     ? "bg-active font-semibold text-ink border-line-active"
                     : "bg-info-surface text-ink-muted hover:bg-raised border-line-strong"
                 }`}
               >
-                Monthly
+                By day
               </button>
               <button
                 type="button"
                 aria-pressed={activeFilter === "circadian"}
                 onClick={() => setActiveFilter("circadian")}
-                className={`px-3 py-1.5 min-h-11 min-h-11 transition border ${
+                className={`px-3 py-1.5 min-h-11 transition border ${
                   activeFilter === "circadian"
                     ? "bg-active font-semibold text-ink border-line-active"
                     : "bg-info-surface text-ink-muted hover:bg-raised border-line-strong"
                 }`}
               >
-                UTC Circadian
+                By hour
               </button>
             </div>
           </div>
@@ -592,7 +608,7 @@ export const BentoGrid: React.FC<BentoGridProps> = ({
               {!histogramFromEngine
                 ? "No posting series reported for this case"
                 : activeFilter === "circadian"
-                  ? `UTC 24h posting distribution // ${diurnalHourly.reduce((a, b) => a + b, 0)} captured events`
+                  ? `Posts per hour, all times in UTC // ${diurnalHourly.reduce((a, b) => a + b, 0)} posts found`
                   : `Aggregated 30-day activity // ${monthlyHourly.reduce((a, b) => a + b, 0)} captured events`}
             </span>
 
@@ -996,10 +1012,21 @@ export const BentoGrid: React.FC<BentoGridProps> = ({
       {/* MIDDLE ROW 2: Semi-Gauge Card */}
       <div className="matte-card p-6 flex flex-col justify-between">
         <div>
-          <h3 className="text-sm font-bold text-ink">Attribution Confidence</h3>
-          <p className="text-xs text-ink-dim mt-0.5">Composite engine formula (C_attr)</p>
+          <h3 className="text-sm font-bold text-ink">How sure are we?</h3>
+          {/* "Attribution" is the field's name, not the reader's question, and
+              "Composite engine formula (C_attr)" named an internal variable and
+              explained nothing. Both now say what the number is. */}
+          <p className="text-xs text-ink-dim mt-0.5">
+            One score, combined from every check that ran
+          </p>
           <p className="text-3xl font-extrabold text-ink mt-2 font-mono">{scorePct}</p>
-          <p className="text-xs font-semibold text-info-ink mt-1">{confidenceTier}</p>
+          <p className="text-xs font-semibold text-info-ink mt-1">
+            {scoreNum >= 90
+              ? "Very strong match"
+              : scoreNum >= 75
+                ? "Good lead"
+                : "Not enough to be sure"}
+          </p>
         </div>
 
         {/* Gauge SVG (Dynamic arc calculated from score) */}
@@ -1008,7 +1035,7 @@ export const BentoGrid: React.FC<BentoGridProps> = ({
             className="w-48 h-28"
             viewBox="0 0 200 110"
             role="img"
-            aria-label={`Attribution confidence ${scorePct}, tier ${confidenceTier}.`}
+            aria-label={`How sure we are: ${scorePct}. ${confidenceTier}.`}
           >
             <path
               d="M 20 100 A 80 80 0 0 1 180 100"
@@ -1033,13 +1060,13 @@ export const BentoGrid: React.FC<BentoGridProps> = ({
               {scorePct}
             </span>
             <span className="text-[10px] font-bold text-ink-dim uppercase tracking-wider">
-              {scoreNum >= 90 ? "Judicial Proof" : scoreNum >= 75 ? "High Lead" : "Inconclusive"}
+              {scoreNum >= 90 ? "Very strong" : scoreNum >= 75 ? "Good lead" : "Not enough"}
             </span>
           </div>
         </div>
 
         <div className="flex items-center justify-between text-[12px] font-semibold pt-3 border-t border-line">
-          <span className="text-ink-dim">Contradiction Penalty</span>
+          <span className="text-ink-dim">Points lost for contradictions</span>
           <span className="font-mono text-ink-muted">
             {/*
               Narrowed rather than cast. `breakdown` is Record<string, unknown>
@@ -1082,9 +1109,8 @@ export const BentoGrid: React.FC<BentoGridProps> = ({
           if (!hasSplit) {
             return (
               <p className="text-[10px] text-ink-faint font-mono mt-3 leading-relaxed border-t border-line pt-3">
-                The deterministic / probabilistic split is not reported for this
-                record, so the composition of this score cannot be shown. The
-                headline figure alone should not be relied on.
+                We were not told how this score was put together, so the parts
+                cannot be shown. Do not rely on the score on its own.
               </p>
             );
           }
@@ -1100,11 +1126,11 @@ export const BentoGrid: React.FC<BentoGridProps> = ({
             <div className="mt-3 pt-3 border-t border-line">
               <div className="flex items-baseline justify-between">
                 <span className="text-[10px] uppercase tracking-widest text-ink-faint font-mono">
-                  Score composition
+                  Where the score comes from
                 </span>
                 {wDet !== null && wAi !== null && (
                   <span className="text-[10px] text-ink-dim font-mono">
-                    weighted {wDet} / {wAi}
+                    facts count {wDet}×, guesses {wAi}×
                   </span>
                 )}
               </div>
@@ -1116,9 +1142,9 @@ export const BentoGrid: React.FC<BentoGridProps> = ({
               <div
                 className="flex h-2.5 mt-2 border border-line-strong"
                 role="img"
-                aria-label={`Score composition: ${detPct}% from deterministic indicators, ${aiPct}% from probabilistic inference.${
+                aria-label={`Where this score comes from: ${detPct}% from facts that can be checked again, ${aiPct}% from our best guess.${
                   wDet !== null && wAi !== null
-                    ? ` Weighted ${wDet} toward deterministic, ${wAi} toward probabilistic.`
+                    ? ` Fact-based checks count ${wDet} times more than guess-based ones.`
                     : ""
                 }`}
               >
@@ -1132,12 +1158,17 @@ export const BentoGrid: React.FC<BentoGridProps> = ({
                 ></span>
               </div>
               <div className="flex justify-between mt-1.5 text-[10px] font-mono">
+                {/* "deterministic" and "probabilistic" are the field's words, and
+                    they are the hardest pair on this screen. They mean
+                    "a fact you can check again" and "our best guess", so that is
+                    what is printed. The precise terms stay in the label below,
+                    for anyone who needs them. */}
                 <span className="text-info-ink">
-                  <span className="text-ink-dim">deterministic </span>
+                  <span className="text-ink-dim">checkable facts </span>
                   {detPct}%
                 </span>
                 <span className="text-warn-ink">
-                  {aiPct}% <span className="text-ink-dim">probabilistic</span>
+                  {aiPct}% <span className="text-ink-dim">our best guess</span>
                 </span>
               </div>
             </div>
@@ -1206,9 +1237,9 @@ export const BentoGrid: React.FC<BentoGridProps> = ({
       {/* BOTTOM ROW 1: 3D Stacked Cryptographic Anchors */}
       <div className="matte-card p-6 lg:col-span-2 flex flex-col md:flex-row items-center justify-between gap-6 overflow-hidden">
         <div className="flex-1">
-          <h3 className="text-lg font-bold text-ink">Cryptographic Anchor Chain</h3>
+          <h3 className="text-lg font-bold text-ink">Keys and wallets found</h3>
           <p className="text-xs text-ink-muted mt-1 leading-relaxed max-w-[52ch]">
-            Deterministic linkages between the PGP fingerprint, the wallet, and the clearnet origin
+            Connections between the PGP key, the Bitcoin wallet, and the real server address
             resolved for this case.
           </p>
 
@@ -1293,7 +1324,7 @@ export const BentoGrid: React.FC<BentoGridProps> = ({
       {/* BOTTOM ROW 2: Recent Attribution Activity */}
       <div className="matte-card p-6 flex flex-col justify-between">
         <div className="flex justify-between items-center mb-3">
-          <h3 className="text-sm font-bold text-ink">Investigation Timeline</h3>
+          <h3 className="text-sm font-bold text-ink">What happened, in order</h3>
           <span className="text-[11px] font-mono font-semibold text-info-ink">Case Stream</span>
         </div>
 

@@ -147,9 +147,15 @@ export const CustodyLedgerView: React.FC<CustodyLedgerViewProps> = ({
       const { data, isLive } = await verifyCustodyLedger(evidenceId);
       setVerification(data);
       if (data.valid) {
+        // `isLive` is no longer used in the title. It said "Cryptographic Chain
+        // Intact" for a client-side fallback and "Custody Seal Valid" for a
+        // server check, which implied the two were different strengths of
+        // evidence. They are not: both are the same check, and where it ran
+        // does not change whether the answer is true. It stays in the payload.
+        void isLive;
         onShowToast(
-          isLive ? "Custody Seal Valid (SHA-256)" : "Cryptographic Chain Intact",
-          `Tamper-evident chain valid across ${data.entry_count} custody blocks. Seal: ${data.seal.substring(
+          "The log checks out",
+          `All ${data.entry_count} steps match. Nothing in the log has been changed. Fingerprint ${data.seal.substring(
             0,
             16
           )}...`,
@@ -157,8 +163,8 @@ export const CustodyLedgerView: React.FC<CustodyLedgerViewProps> = ({
         );
       } else {
         onShowToast(
-          "Ledger Tamper Detected",
-          `Integrity failure at block sequence #${data.broken_at_seq}. Hashes mismatch!`,
+          "Someone changed the log",
+          `The log stops matching at step #${data.broken_at_seq}. Something in it was changed.`,
           "critical"
         );
       }
@@ -167,7 +173,7 @@ export const CustodyLedgerView: React.FC<CustodyLedgerViewProps> = ({
       // root." A failed request is the opposite of a verification, and there is
       // no local cryptographic root in the browser bundle to verify against.
       onShowToast(
-        "Ledger Not Verified",
+        "Could not check the log",
         "The verification request failed, so the chain's integrity is unknown. Treat it as unverified until this succeeds.",
         "critical"
       );
@@ -194,9 +200,12 @@ export const CustodyLedgerView: React.FC<CustodyLedgerViewProps> = ({
         setEntries((prev) => [...prev, entry]);
       }
       setActionDesc("");
+      // Same reasoning as the verify handler: where the write went does not
+      // change whether the step was recorded.
+      void isLive;
       onShowToast(
-        isLive ? "Entry Appended & Re-Sealed" : "Entry Committed (Buffer)",
-        `SHA-256 block linked. Sequence: ${entry?.seq ?? "N/A"}.`,
+        "Step added",
+        `Added as step number ${entry?.seq ?? "N/A"} and the log was re-signed.`,
         "success"
       );
       // Re-verify
@@ -207,7 +216,7 @@ export const CustodyLedgerView: React.FC<CustodyLedgerViewProps> = ({
       // been recorded, and on an append-only ledger a custody record that does
       // not exist is indistinguishable from one that was never made.
       onShowToast(
-        "Append Failed",
+        "Step not added",
         "The ledger rejected the write, so no custody block was created. The action you described has NOT been recorded.",
         "critical"
       );
@@ -229,7 +238,7 @@ export const CustodyLedgerView: React.FC<CustodyLedgerViewProps> = ({
                 actual state, which does carry meaning.
               */}
               <h2 className="text-xl font-bold text-ink tracking-tight">
-                Tamper-Evident Chain of Custody Ledger
+                Evidence Log
               </h2>
           </div>
           <p className="text-xs text-ink-muted mt-1">
@@ -244,7 +253,7 @@ export const CustodyLedgerView: React.FC<CustodyLedgerViewProps> = ({
             <span className="text-[10px] text-ink-muted uppercase font-mono block">Status</span>
             <span className="text-xs font-mono font-bold text-signal-ink flex items-center gap-1.5">
               <i className="fa-solid fa-circle-check text-[11px]"></i>
-              {verification?.valid ? "SHA-256 SEAL VALID" : "CHECKING INTEGRITY..."}
+              {verification?.valid ? "LOG CHECKS OUT" : "CHECKING THE LOG..."}
             </span>
           </div>
 
@@ -258,7 +267,7 @@ export const CustodyLedgerView: React.FC<CustodyLedgerViewProps> = ({
             ) : (
               <i className="fa-solid fa-shield-halved text-xs"></i>
             )}
-            Verify Ledger Integrity
+            Check the log
           </button>
         </div>
       </div>
@@ -319,7 +328,7 @@ export const CustodyLedgerView: React.FC<CustodyLedgerViewProps> = ({
         <div className="matte-card p-5">
           <div className="flex justify-between items-center pb-3 border-b border-line">
             <h3 className="text-[16px] font-bold text-ink font-mono">
-              Link integrity
+              Is the log still intact?
             </h3>
             <span className="text-[10px] text-ink-muted font-mono">
               each block is bound to the hash above it
@@ -423,9 +432,9 @@ export const CustodyLedgerView: React.FC<CustodyLedgerViewProps> = ({
           >
             {verification
               ? verification.valid
-                ? `All ${verification.entry_count} links verified against the local cryptographic root.`
-                : `Link integrity fails at block #${verification.broken_at_seq}. The blocks from there down are not bound to the chain above them.`
-              : "Integrity has not been verified for this ledger. Treat the chain above as unverified."}
+                ? `All ${verification.entry_count} steps check out. Nothing has been changed.`
+                : `The log stops matching at step #${verification.broken_at_seq}. Everything after it was changed, or the record is wrong.`
+              : "This log has not been checked yet. Do not rely on the log above until it is checked."}
           </p>
         </div>
       )}
@@ -434,7 +443,7 @@ export const CustodyLedgerView: React.FC<CustodyLedgerViewProps> = ({
       <div className="matte-card p-5">
         <div className="flex justify-between items-center pb-3 border-b border-line">
           <h3 className="text-sm font-bold text-white uppercase tracking-wider font-mono">
-            Sequential Cryptographic Log ({evidenceId})
+            Every step, in order ({evidenceId})
           </h3>
           <span className="text-xs text-ink-muted font-mono">
             Total Blocks: {entries.length}
@@ -544,9 +553,9 @@ export const CustodyLedgerView: React.FC<CustodyLedgerViewProps> = ({
         <div className="lg:col-span-2 matte-card p-5">
           <div className="flex justify-between items-center pb-3 border-b border-line">
             <h3 className="text-sm font-bold text-white uppercase tracking-wider font-mono">
-              Append Forensic Event to Custody Chain
+              Add a step to the log
             </h3>
-            <span className="text-[10px] text-ink-muted font-mono">Real-time SHA-256 Linkage</span>
+            <span className="text-[10px] text-ink-muted font-mono">Each step is fingerprinted</span>
           </div>
 
           <form onSubmit={handleAppend} className="mt-4 space-y-4 text-xs font-mono">
@@ -645,12 +654,12 @@ export const CustodyLedgerView: React.FC<CustodyLedgerViewProps> = ({
           </form>
         </div>
 
-        {/* Export & Judicial Submission (1 Column) */}
+          {/* Export & court submission (1 Column) */}
         <div className="matte-card p-5 flex flex-col justify-between">
           <div>
             <div className="flex justify-between items-center pb-3 border-b border-line">
               <h3 className="text-sm font-bold text-white uppercase tracking-wider font-mono">
-                Judicial Submission
+                For court
               </h3>
               <span className="text-[10px] text-ink-muted font-mono">Export</span>
             </div>
@@ -688,7 +697,7 @@ export const CustodyLedgerView: React.FC<CustodyLedgerViewProps> = ({
           </div>
 
           {/* This line was a static "Chain seal verified against SQLite store."
-              in the Judicial Submission panel — printed unconditionally, outside
+              in the court panel — printed unconditionally, outside
               any state check, on the panel that tells a court this export is
               fit to file. It asserted a verification that might never have run,
               against a storage backend this product does not use.
@@ -705,10 +714,10 @@ export const CustodyLedgerView: React.FC<CustodyLedgerViewProps> = ({
             }`}
           >
             {!verification
-              ? "Integrity has not been verified for this ledger. Verify before relying on any export below."
+              ? "This log has not been checked yet. Verify before relying on any export below."
               : verification.valid
-                ? `Chain seal recomputed and matched across ${verification.entry_count} block${verification.entry_count === 1 ? "" : "s"}. Root seal ${verification.seal.slice(0, 16)}…`
-                : `Chain seal does NOT match: integrity fails at block #${verification.broken_at_seq}. Exports below are not trustworthy.`}
+                ? `All ${verification.entry_count} steps check out. The log has not been changed. Fingerprint ${verification.seal.slice(0, 16)}…`
+                : `The log stops matching at step #${verification.broken_at_seq}. Do not rely on the exports below.`}
           </div>
         </div>
       </div>

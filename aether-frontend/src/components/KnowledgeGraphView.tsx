@@ -137,7 +137,7 @@ function linkWidth(link: ForceLink): number {
 // cluster about 120 units across; fitting that meant the camera pulled back until
 // the nodes were a speck again, and "Center" did nothing because the camera was
 // already at the fit position. Clamping the width keeps the bounds honest, and
-// the untruncated value stays on the hover tooltip and in the Entity Inspector.
+// the untruncated value stays on the hover tooltip and in the Details.
 //
 // depthTest is off so a label sitting behind another node still reads, and the
 // sprites are cached per node because nodeThreeObject re-runs on every filter
@@ -815,7 +815,7 @@ export const KnowledgeGraphView: React.FC<KnowledgeGraphViewProps> = ({
       (l) => (l.source as unknown as { id?: string })?.id === selectedNode.id,
     ).length;
     onShowToast(
-      "Entity Linkage",
+      "How they are connected",
       `"${selectedNode.label}" has ${inbound} inbound and ${outbound} outbound relations in this view. This is the extent of the linkage, not a timeline correlation.`,
     );
   };
@@ -881,9 +881,12 @@ export const KnowledgeGraphView: React.FC<KnowledgeGraphViewProps> = ({
           {/* HUD Top Bar */}
           <div className="flex justify-between items-center pb-3 border-b border-line text-xs font-mono">
             <div className="flex items-center gap-3">
+              {/* "Nodes" and "Conduits" were internal vocabulary. "Conduit" is
+                  not a word anyone outside the codebase uses, and it described
+                  an edge without saying what an edge is. */}
               <span className="text-ink-muted">
-                Spatial Engine // {graphData.nodes.length} Nodes &bull;{" "}
-                {graphData.links.length} Conduits
+                {graphData.nodes.length} people and accounts &bull;{" "}
+                {graphData.links.length} connections between them
               </span>
               {hoveredNode && (
                 <span className="text-info-ink hidden sm:inline">
@@ -968,7 +971,7 @@ export const KnowledgeGraphView: React.FC<KnowledgeGraphViewProps> = ({
                   `<div style="font-family:ui-monospace,monospace;font-size:11px;background:rgba(10,14,23,.92);border:1px solid ${escapeHtml(node.color)};padding:6px 8px;color:#f1f5f9">
                      <div style="font-weight:700">${escapeHtml(node.label)}</div>
                      <div style="color:#94a3b8">${escapeHtml(node.subtext)}</div>
-                     <div style="color:${escapeHtml(node.color)}">CONFIDENCE: ${escapeHtml(node.confidence)}</div>
+                     <div style="color:${escapeHtml(node.color)}">HOW SURE: ${escapeHtml(node.confidence)}</div>
                    </div>`
                 }
                 linkColor={(link: ForceLink) => linkColor(link)}
@@ -1003,11 +1006,11 @@ export const KnowledgeGraphView: React.FC<KnowledgeGraphViewProps> = ({
               <div className="space-y-1">
                 <div className="flex items-center gap-2">
                   <span className="inline-block w-4 h-0.5 bg-info"></span>
-                  <span className="text-ink">Deterministic proof</span>
+                  <span className="text-ink">Can be checked again</span>
                 </div>
                 <div className="flex items-center gap-2">
                   <span className="inline-block w-4 h-0.5 bg-rose-400"></span>
-                  <span className="text-ink">Probabilistic lead</span>
+                  <span className="text-ink">Our best guess</span>
                 </div>
               </div>
               <div className="text-ink-faint uppercase tracking-widest mt-2.5 mb-1.5">
@@ -1133,7 +1136,7 @@ export const KnowledgeGraphView: React.FC<KnowledgeGraphViewProps> = ({
                               </span>
                               <span className="sr-only">
                                 {r.link.isDeterministic
-                                  ? "deterministic proof, "
+                                  ? "a fact that can be checked, "
                                   : "probabilistic lead, "}
                                 {r.dir === "out" ? "outbound to" : "inbound from"}
                               </span>
@@ -1168,7 +1171,7 @@ export const KnowledgeGraphView: React.FC<KnowledgeGraphViewProps> = ({
           <div>
             <div className="flex justify-between items-center pb-3 border-b border-line">
               <h3 className="text-sm font-bold text-white uppercase tracking-wider font-mono">
-                Entity Inspector
+                Details
               </h3>
               <span
                 className="text-[11px] font-mono px-2 py-0.5 border"
@@ -1178,13 +1181,13 @@ export const KnowledgeGraphView: React.FC<KnowledgeGraphViewProps> = ({
                   backgroundColor: selectedNode.color + "11",
                 }}
               >
-                Confidence: {selectedNode.confidence}
+                How sure: {selectedNode.confidence}
               </span>
             </div>
 
             <div className="mt-4">
               <span className="text-[10px] font-mono text-ink-muted uppercase tracking-widest block">
-                Target Entity
+                You selected
               </span>
               <h4 className="text-lg font-bold text-white mt-0.5">{selectedNode.label}</h4>
               <p className="text-xs text-ink-muted font-mono mt-0.5">{selectedNode.subtext}</p>
@@ -1217,7 +1220,7 @@ export const KnowledgeGraphView: React.FC<KnowledgeGraphViewProps> = ({
               onClick={handleDescribePivots}
               className="w-full min-h-11 py-2 bg-surface hover:bg-raised text-ink border border-line-strong text-xs font-semibold font-mono transition"
             >
-              Report entity linkage
+              Show connections
             </button>
           </div>
         </div>
