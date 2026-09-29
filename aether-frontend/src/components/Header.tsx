@@ -75,8 +75,19 @@ export const Header: React.FC<HeaderProps> = ({
   };
 
   return (
-    <header className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4">
-      <div className="flex items-center gap-4">
+    /*
+     * Header height is a working-space constraint, not decoration. This used to
+     * render the case switcher and the connection badge *inside* the h1, so at
+     * 1280px the heading wrapped to three lines and the brand block measured
+     * 145px, pushing the case data below the fold on a laptop.
+     *
+     * The heading now carries the product name only, which is what a heading is
+     * for, and the case switcher and status sit in a metadata row beneath it.
+     * That is also better for assistive technology: an h1 containing a
+     * dropdown and a status pill pollutes the document outline.
+     */
+    <header className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-3">
+      <div className="flex items-center gap-3 min-w-0">
         {/* Geometric Sunburst Logo (Sharp Square, Steel Tone) */}
         <div
           className="w-12 h-12 flex items-center justify-center text-ink-muted bg-surface border border-line-strong shrink-0"
@@ -101,15 +112,10 @@ export const Header: React.FC<HeaderProps> = ({
           </svg>
         </div>
         <div className="min-w-0">
-          {/*
-            The page heading is the product, not a greeting. "Hello, Lead
-            Investigator!" was the h1, which made every section heading on the
-            page a subordinate of a salutation, and it changed for nobody
-            except the person reading it. The greeting moved to the subtitle,
-            where it costs nothing semantically.
-          */}
-          <h1 className="text-2xl lg:text-3xl font-extrabold tracking-tight text-ink flex items-center gap-2 flex-wrap">
+          <h1 className="text-xl lg:text-2xl font-extrabold tracking-tight text-ink leading-none">
             AETHER
+          </h1>
+          <div className="flex items-center gap-2 mt-1.5 flex-wrap">
             {/* Active Case switcher */}
             <div className="relative inline-block">
               <button
@@ -117,14 +123,14 @@ export const Header: React.FC<HeaderProps> = ({
                 onClick={() => setCaseMenuOpen((v) => !v)}
                 aria-expanded={caseMenuOpen}
                 aria-haspopup="menu"
-                className="text-xs font-semibold px-2.5 py-1 min-h-8 bg-info-surface hover:bg-raised text-ink-muted border border-line-strong hover:border-info font-mono flex items-center gap-1.5 transition"
+                className="text-[11px] font-semibold px-2 py-0.5 bg-info-surface hover:bg-raised text-ink-muted border border-line-strong hover:border-info font-mono flex items-center gap-1.5 transition whitespace-nowrap"
               >
-                <span className="w-2 h-2 bg-info shrink-0" aria-hidden="true" />
+                <span className="w-1.5 h-1.5 bg-info shrink-0" aria-hidden="true" />
                 <span>{activeEvidenceId}</span>
                 <span className="text-ink-dim">({activeActorName})</span>
                 <span className="text-signal-ink font-bold">{activeConfidence}%</span>
                 <i
-                  className={`fa-solid fa-chevron-down text-[9px] text-ink-dim ml-0.5 transition-transform ${
+                  className={`fa-solid fa-chevron-down text-[8px] text-ink-dim transition-transform ${
                     caseMenuOpen ? "rotate-180" : ""
                   }`}
                   aria-hidden="true"
@@ -211,17 +217,40 @@ export const Header: React.FC<HeaderProps> = ({
                   apiOnline ? "bg-signal aether-live-pulse" : "bg-ink-faint"
                 }`}
               />
-              {apiOnline ? "API online" : "API unreachable — showing cached case"}
+              {/*
+                Short form below xl. The full phrase is 96px wide, which at
+                1024px is the difference between the status badge sharing the
+                metadata line and being pushed onto a second one.
+              */}
+              <span className="hidden xl:inline">
+                {apiOnline ? "API online" : "API unreachable — showing cached case"}
+              </span>
+              <span className="xl:hidden">
+                {apiOnline ? "online" : "offline"}
+              </span>
+              <span className="sr-only xl:hidden">
+                {apiOnline
+                  ? "Backend API is online."
+                  : "Backend API is unreachable. Showing the cached case, which is not live data."}
+              </span>
             </span>
-          </h1>
-          <p className="text-ink-muted text-sm font-medium mt-0.5">
+          </div>
+          {/*
+            The one-line descriptor sits in the metadata row rather than as its
+            own block, and is dropped below xl. At 1024px the brand column is
+            squeezed to roughly 250px by the action row, so the descriptor
+            pushed the header to 104px and wrapped the status badge onto a
+            second line. It is the least load-bearing text in the header: the
+            case id, the actor and the connection state are all still present.
+          */}
+          <p className="hidden xl:block text-[11px] text-ink-dim font-medium mt-1 truncate max-w-[52ch]">
             Dark web threat actor de-anonymization &amp; forensic intelligence for NTRO PS-26151
           </p>
         </div>
       </div>
 
       {/* Primary action & search */}
-      <div className="flex items-center gap-2 sm:gap-3 w-full lg:w-auto flex-wrap xl:flex-nowrap">
+      <div className="flex items-center gap-2 w-full lg:w-auto flex-nowrap">
         {/*
           This was the only gradient and the only glow in the product, on the
           primary action, in an interface that is otherwise flat steel with
@@ -242,7 +271,7 @@ export const Header: React.FC<HeaderProps> = ({
         <form
           onSubmit={handleSearchSubmit}
           role="search"
-          className="flex items-center bg-card pl-3 pr-1 py-1 border border-line w-full sm:w-80 focus-within:border-info transition"
+          className="flex items-center bg-card pl-3 pr-1 py-1 border border-line w-full sm:w-56 xl:w-72 focus-within:border-info transition"
         >
           <label htmlFor="aether-target-search" className="sr-only">
             Search by onion address, PGP fingerprint, or Bitcoin wallet

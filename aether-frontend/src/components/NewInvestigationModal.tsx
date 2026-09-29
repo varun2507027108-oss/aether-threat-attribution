@@ -793,9 +793,9 @@ export const NewInvestigationModal: React.FC<NewInvestigationModalProps> = ({
               </button>
               <button
                 type="submit"
-                className="px-6 py-2.5 bg-active hover:bg-info-hover text-white text-xs font-mono font-bold tracking-wider transition border border-info-line-strong flex items-center gap-2 shadow-[0_0_15px_rgba(56,189,248,0.25)]"
+                className="px-6 py-2.5 min-h-11 bg-active hover:bg-info-hover text-ink text-xs font-mono font-bold tracking-wider transition border border-info-line-strong flex items-center justify-center gap-2 disabled:opacity-60"
               >
-                <i className="fa-solid fa-play text-[10px]"></i>
+                <i className="fa-solid fa-play text-[10px]" aria-hidden="true"></i>
                 START ANALYSIS
               </button>
             </div>

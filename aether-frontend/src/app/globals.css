@@ -15,8 +15,14 @@
 @theme {
   /* --- Surfaces -------------------------------------------------------
      Seven steps from the page down to a chart well. Anything that is not
-     genuinely a new plane of depth collapses onto one of these. */
-  --color-canvas: #000000;
+     genuinely a new plane of depth collapses onto one of these.
+
+     The canvas is a near-black rather than #000000. Pure black causes halation
+     on OLED panels, where bright text bleeds a visible halo into the dark
+     surround, and it crushes the distinction between the page and the card
+     sitting on it. #08090c reads as black in a dim room while keeping the
+     surface steps legible. */
+  --color-canvas: #08090c;
   --color-sunken: #06080d; /* chart canvas, deepest inset */
   --color-input: #080b10; /* form field wells */
   --color-card: #0d1017; /* the canonical card */

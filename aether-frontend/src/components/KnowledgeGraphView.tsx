@@ -484,13 +484,13 @@ export const KnowledgeGraphView: React.FC<KnowledgeGraphViewProps> = ({
     <div className="flex flex-col gap-6 w-full">
       {/* Top Header Card */}
       <div className="matte-card p-5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-        <div>
-          <div className="flex items-center gap-2">
-            <span className="text-xs font-mono font-bold px-2 py-0.5 bg-info-surface text-ink border border-line-strong">
-              STAGE 02
-            </span>
-            <h2 className="text-xl font-bold text-white tracking-tight flex items-center gap-2">
-              <span>3D Forensic Knowledge Graph</span>
+          <div>
+            <div className="flex items-center gap-2.5">
+              {/* "STAGE 02" removed: a step counter, not information. The
+                  technology badge stays, because it discloses what actually
+                  renders the view. */}
+              <h2 className="text-xl font-bold text-ink tracking-tight flex items-center gap-2">
+                <span>3D Forensic Knowledge Graph</span>
               <span className="text-xs font-mono font-normal px-2 py-0.5 bg-raised text-info-ink border border-info-line">
                 THREE.JS WebGL
               </span>
@@ -575,7 +575,11 @@ export const KnowledgeGraphView: React.FC<KnowledgeGraphViewProps> = ({
                 graphData={graphData}
                 width={dimensions.width}
                 height={dimensions.height}
-                backgroundColor="#000000"
+                // Matches --color-canvas. react-force-graph passes this to THREE.Color,
+        // which does not resolve CSS custom properties, so the literal is
+        // duplicated rather than referenced. Keep the two in step: the canvas
+        // surface is #08090c, not #000000.
+        backgroundColor="#08090c"
                 // Node radius carries the attribution confidence, so a
                 // weakly-linked entity visibly sits smaller than a confirmed one.
                 nodeVal={readNodeVal}

@@ -166,14 +166,17 @@ export const CustodyLedgerView: React.FC<CustodyLedgerViewProps> = ({
     <div className="flex flex-col gap-6 w-full">
       {/* Header Bar */}
       <div className="matte-card p-5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-        <div>
-          <div className="flex items-center gap-2">
-            <span className="text-xs font-mono font-bold px-2 py-0.5 bg-info-surface text-ink border border-line-strong">
-              STAGE 03
-            </span>
-            <h2 className="text-xl font-bold text-white tracking-tight">
-              Tamper-Evident Chain of Custody Ledger
-            </h2>
+          <div>
+            <div className="flex items-center gap-2.5">
+              {/*
+                The "STAGE 03" badge that sat here was a step counter, not
+                information: it implied a sequence the analyst never sees and
+                the heading already names the thing. Removed in favour of the
+                actual state, which does carry meaning.
+              */}
+              <h2 className="text-xl font-bold text-ink tracking-tight">
+                Tamper-Evident Chain of Custody Ledger
+              </h2>
           </div>
           <p className="text-xs text-ink-muted mt-1">
             Section 63, Bharatiya Sakshya Adhiniyam, 2023 (formerly s.65B, Indian Evidence Act, 1872) compliant cryptographic audit ledger. Every action is
