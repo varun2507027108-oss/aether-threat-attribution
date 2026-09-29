@@ -165,6 +165,15 @@
   .matte-card:hover {
     border-color: var(--color-line-active);
   }
+
+  /* react-force-graph injects its own centred nav-hint strip inside the 3D
+     scene container, absolutely positioned at bottom 5px so it lies across the
+     graph. This app renders an equivalent hint row in normal flow directly under
+     the canvas, which wraps and never covers the scene, so the library's
+     duplicate is suppressed rather than left overlapping. */
+  .scene-nav-info {
+    display: none;
+  }
 }
 
 @layer utilities {

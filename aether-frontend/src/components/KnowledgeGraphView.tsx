@@ -2,6 +2,7 @@
 
 import React, { useEffect, useRef, useState } from "react";
 import dynamic from "next/dynamic";
+import * as THREE from "three";
 import type {
   ForceGraphMethods,
   ForceGraphProps,
@@ -24,6 +25,10 @@ import { InvestigationResult } from "@/lib/api";
 type ForceGraphComponent = (
   props: ForceGraphProps<ForceNode, LinkPayload> & {
     ref?: React.MutableRefObject<GraphMethods | undefined>;
+    // The shipped d.ts declares d3Force only as an instance method and never as a
+    // prop, even though the component accepts and calls it. Declared here so the
+    // layout hook is type-checked rather than silently untyped.
+    d3Force?: (sim: unknown) => void;
   },
 ) => React.ReactElement | null;
 
@@ -39,10 +44,22 @@ const ForceGraph3D = dynamic(() => import("react-force-graph-3d"), {
 // Node radius carries the attribution confidence, so a weakly-linked entity
 // visibly sits smaller in the graph instead of being indistinguishable from a
 // confirmed one.
-function nodeRelSize(node: NodeData): number {
+const NODE_RADIUS_MIN = 4.4;
+const NODE_RADIUS_MAX = 9.6;
+
+function nodeRadius(node: NodeData): number {
   const parsed = parseFloat(node.confidence.replace("%", ""));
   const confidence = Number.isFinite(parsed) ? Math.min(100, Math.max(0, parsed)) : 50;
-  return 3 + (confidence / 100) * 5;
+  return NODE_RADIUS_MIN + (confidence / 100) * (NODE_RADIUS_MAX - NODE_RADIUS_MIN);
+}
+
+// three-forcegraph computes sphere radius as `Math.cbrt(val) * nodeRelSize`
+// (dist/react-force-graph-3d.js, `var radius = Math.cbrt(val) * state.nodeRelSize`).
+// Pinning nodeRelSize to 1 and storing the cube of the radius we want therefore
+// yields the radius exactly, instead of the old 3..8 `val` range that produced
+// spheres of 5.8-8 units that read as flat 10px dots from a fitted camera.
+function nodeValFor(node: NodeData): number {
+  return nodeRadius(node) ** 3;
 }
 
 // The library applies its own NodeObject<> wrapper to the node type it was
@@ -74,6 +91,79 @@ function linkColor(link: ForceLink): string {
 
 function linkWidth(link: ForceLink): number {
   return link.isDeterministic ? 1.4 : 0.8;
+}
+
+// In 3D, `nodeLabel` only feeds the HTML hover tooltip, so a settled frame
+// carries no text at all: the reviewer sees seven coloured spheres and has to
+// hover each one to learn what any of them are. That is unusable in a screenshot
+// and unusable in a report. These sprites are the always-visible equivalent,
+// drawn to a canvas and parented to the node object.
+//
+// Label width has to stay bounded, for a non-obvious reason. `getBbox` builds the
+// camera fit with `box.expandByObject(nodeObj)`, which recurses into children,
+// so every sprite counts toward the fit. A darknet node labelled with a 38-char
+// onion address renders a sprite roughly 200 world units wide against a node
+// cluster about 120 units across; fitting that meant the camera pulled back until
+// the nodes were a speck again, and "Center" did nothing because the camera was
+// already at the fit position. Clamping the width keeps the bounds honest, and
+// the untruncated value stays on the hover tooltip and in the Entity Inspector.
+//
+// depthTest is off so a label sitting behind another node still reads, and the
+// sprites are cached per node because nodeThreeObject re-runs on every filter
+// change, and each rebuild would otherwise allocate a fresh GPU texture and
+// leave the previous one undisposed.
+const MAX_LABEL_CHARS = 22;
+const LABEL_WIDTH_IN_RADII = 6.5;
+
+function truncateLabel(label: string): string {
+  return label.length > MAX_LABEL_CHARS ? `${label.slice(0, MAX_LABEL_CHARS - 1)}…` : label;
+}
+
+function buildLabelSprite(node: ForceNode, radius: number): THREE.Sprite {
+  const fontPx = 40;
+  const padding = 20;
+  const font = `600 ${fontPx}px ui-monospace, SFMono-Regular, Menlo, monospace`;
+  const text = truncateLabel(node.label);
+
+  const measure = document.createElement("canvas").getContext("2d");
+  if (measure) measure.font = font;
+  const textWidth = measure ? Math.ceil(measure.measureText(text).width) : fontPx * 6;
+  const width = textWidth + padding * 2;
+  const height = Math.ceil(fontPx * 1.3);
+
+  const canvas = document.createElement("canvas");
+  canvas.width = width;
+  canvas.height = height;
+  const ctx = canvas.getContext("2d");
+  const sprite = new THREE.Sprite(
+    new THREE.SpriteMaterial({ transparent: true, depthTest: false }),
+  );
+
+  if (ctx) {
+    ctx.font = font;
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillStyle = "rgba(8, 11, 18, 0.82)";
+    ctx.fillRect(0, 0, width, height);
+    ctx.fillStyle = node.color;
+    ctx.fillRect(0, 0, 3, height);
+    ctx.fillStyle = "#e2e8f0";
+    ctx.fillText(text, width / 2, height / 2);
+    const texture = new THREE.CanvasTexture(canvas);
+    texture.needsUpdate = true;
+    (sprite.material as THREE.SpriteMaterial).map = texture;
+  }
+
+  // Height is tied to the node radius so labels keep their relative weight
+  // whether the entity is a weakly-linked lead or a confirmed actor. Long labels
+  // shrink uniformly rather than being squashed, so glyphs stay undistorted.
+  const labelHeight = radius * 0.72;
+  const naturalWidth = (labelHeight * width) / height;
+  const maxWidth = radius * LABEL_WIDTH_IN_RADII;
+  const shrink = naturalWidth > maxWidth ? maxWidth / naturalWidth : 1;
+  sprite.scale.set(naturalWidth * shrink, labelHeight * shrink, 1);
+  sprite.position.set(0, radius + labelHeight * 0.95, 0);
+  return sprite;
 }
 
 
@@ -390,7 +480,7 @@ export const KnowledgeGraphView: React.FC<KnowledgeGraphViewProps> = ({
 
     const nodes: ForceNode[] = visible.map((n) => ({
       ...n,
-      val: nodeRelSize(n),
+      val: nodeValFor(n),
     }));
 
     const links: ForceLink[] = activeEdges
@@ -409,6 +499,26 @@ export const KnowledgeGraphView: React.FC<KnowledgeGraphViewProps> = ({
 
     return { nodes, links };
   }, [activeNodes, activeEdges, filterType]);
+
+  // Human labels for the node-type encoding. Kept beside colorMap so a type
+  // added there without a label here shows as a blank swatch rather than a
+  // mislabelled one.
+  const TYPE_LABELS: Record<string, string> = {
+    "threat-actor": "Threat actor",
+    ipv4: "IPv4 address",
+    pgp: "PGP key",
+    wallet: "Wallet",
+    darknet: "Darknet alias",
+    hash: "File hash",
+  };
+
+  // The legend previously advertised one node colour while the graph draws six,
+  // so it described an encoding that did not exist. Listing only the types
+  // actually on screen keeps it honest under filtering as well.
+  const presentTypes = React.useMemo(() => {
+    const seen = new Set(graphData.nodes.map((n) => n.type));
+    return (Object.keys(colorMap) as NodeData["type"][]).filter((t) => seen.has(t));
+  }, [graphData, colorMap]);
 
   // The inspector must always describe a node that is actually on screen. When
   // a filter change hides the current selection we fall back during render
@@ -441,9 +551,121 @@ export const KnowledgeGraphView: React.FC<KnowledgeGraphViewProps> = ({
 
   const graphRef = useRef<GraphMethods | undefined>(undefined);
 
+  // Sprites are cached per node so a filter change reuses the textures instead
+  // of allocating a new one per node per rebuild.
+  const spriteCache = useRef(new Map<string, THREE.Sprite>());
+
+  const getLabelSprite = React.useCallback((node: ForceNode) => {
+    const radius = nodeRadius(node);
+    const key = `${node.id}::${node.label}::${node.confidence}::${radius.toFixed(2)}`;
+    const cached = spriteCache.current.get(key);
+    if (cached) return cached;
+    const sprite = buildLabelSprite(node, radius);
+    spriteCache.current.set(key, sprite);
+    return sprite;
+  }, []);
+
+  // A new function identity on every render makes the library treat these as
+  // changed props, flush the scene objects and restart the simulation, so they
+  // are pinned rather than inlined.
+  const extendNode = React.useCallback(() => true, []);
+  const attachLabel = React.useCallback(
+    (node: unknown) => getLabelSprite(node as ForceNode),
+    [getLabelSprite],
+  );
+  const applyForces = React.useCallback((sim: unknown) => {
+    const adjustable = sim as {
+      d3Force: (name: string) =>
+        | { strength?: (v: number) => unknown; distance?: (v: number) => unknown }
+        | undefined;
+    };
+    adjustable.d3Force("charge")?.strength?.(-680);
+    adjustable.d3Force("link")?.distance?.(170);
+  }, []);
+
+  // Without this the library derives its camera distance from node COUNT alone
+  // (`Math.cbrt(nodes.length) * CAMERA_DISTANCE2NODES_FACTOR`), which suits a
+  // thousand-node graph and renders a seven-node one as an unreadable speck.
+  // Refitting once the simulation has settled is the only point at which the
+  // layout is final enough to frame.
+  // The library picks its default camera distance from node COUNT alone
+  // (`Math.cbrt(nodes.length) * CAMERA_DISTANCE2NODES_FACTOR`), which suits a
+  // thousand-node graph and renders a six-node one as an unreadable speck. It
+  // also re-applies that default whenever it flushes the scene, which silently
+  // undoes a fit performed earlier. So the frame is re-applied on every engine
+  // stop rather than once per dataset, and the only thing that stops it is the
+  // analyst taking control of the camera themselves.
+  const userAdjustedRef = useRef(false);
+  const datasetRef = useRef<unknown>(null);
+
+  useEffect(() => {
+    if (datasetRef.current === graphData) return;
+    datasetRef.current = graphData;
+    userAdjustedRef.current = false;
+  }, [graphData]);
+
+  // The library's own framing is wrong for a graph this shape. `fitToBbox`
+  // reduces the bounding box to a single `2 * max|coord|` cube and fits THAT to
+  // the canvas height, so a wide, shallow graph is framed against the wrong axis
+  // and the horizontal space goes unused. Measured on the six-node case, the bbox
+  // is 160 x 78 x 102 units and its own zoomToFit leaves the graph covering about
+  // a third of the canvas width, at a camera distance of 317.
+  //
+  // The library also re-asserts its default camera on every data update whenever
+  // the camera still sits at the distance it last set, which silently undid any
+  // fit. Driving the camera directly, rather than through cameraPosition(),
+  // leaves the library's bookkeeping untouched so it stops second-guessing us,
+  // and it doubles as the "the analyst has taken control" signal.
+  const fitCamera = React.useCallback(() => {
+    const api = graphRef.current;
+    if (!api) return;
+    const bbox = api.getGraphBbox();
+    if (!bbox) return;
+
+    const camera = api.camera() as THREE.PerspectiveCamera;
+    const aspect = dimensions.width / Math.max(1, dimensions.height);
+    const halfW = Math.abs(bbox.x[1] - bbox.x[0]) / 2;
+    const halfH = Math.abs(bbox.y[1] - bbox.y[0]) / 2;
+    const halfD = Math.abs(bbox.z[1] - bbox.z[0]) / 2;
+    const tanHalfFov = Math.tan(((camera.fov || 50) / 2) * (Math.PI / 180));
+
+    // Fit both axes independently and take the stricter of the two, then leave
+    // margin for the labels that sit above each node and for the depth of the
+    // box, which also projects into the frame.
+    const margin = 1.34;
+    const distance =
+      Math.max(halfH / tanHalfFov, halfW / (tanHalfFov * Math.max(0.2, aspect))) * margin +
+      halfD;
+
+    const cx = (bbox.x[0] + bbox.x[1]) / 2;
+    const cy = (bbox.y[0] + bbox.y[1]) / 2;
+    const cz = (bbox.z[0] + bbox.z[1]) / 2;
+
+    camera.position.set(cx, cy, cz + distance);
+    camera.lookAt(cx, cy, cz);
+    const controls = api.controls() as { target?: THREE.Vector3 } | undefined;
+    controls?.target?.set(cx, cy, cz);
+  }, [dimensions.width, dimensions.height]);
+
+  const handleEngineStop = () => {
+    if (userAdjustedRef.current) return;
+    fitCamera();
+  };
+
+  useEffect(() => {
+    // Exposed only so the layout can be measured from a headless browser. The
+    // graph instance is otherwise unreachable, and framing regressions here are
+    // invisible in a screenshot diff without numeric node positions.
+    const w = window as unknown as Record<string, unknown>;
+    w.__aetherGraph = graphRef.current;
+  });
+
   // The 3D handle has no centreAt(); the equivalent is pointing the camera's
   // look-at target at the node while leaving the orbit position alone.
   const lookAtNode = (node: ForceNode) => {
+    // Clicking a node is the analyst taking control, so the graph must stop
+    // re-framing itself out from under them.
+    userAdjustedRef.current = true;
     graphRef.current?.cameraPosition(
       {},
       { x: node.x ?? 0, y: node.y ?? 0, z: node.z ?? 0 },
@@ -457,7 +679,8 @@ export const KnowledgeGraphView: React.FC<KnowledgeGraphViewProps> = ({
   };
 
   const handleResetCamera = () => {
-    graphRef.current?.zoomToFit(400, 40);
+    userAdjustedRef.current = false;
+    fitCamera();
     onShowToast("Camera Reset", "Restored default 3D forensic vantage.");
   };
 
@@ -465,11 +688,23 @@ export const KnowledgeGraphView: React.FC<KnowledgeGraphViewProps> = ({
   // instance, so the toggle drives that instead of the component.
   useEffect(() => {
     const controls = graphRef.current?.controls() as
-      | { autoRotate?: boolean; autoRotateSpeed?: number; update?: () => void }
+      | {
+          autoRotate?: boolean;
+          autoRotateSpeed?: number;
+          update?: () => void;
+          addEventListener?: (type: string, fn: () => void) => void;
+          removeEventListener?: (type: string, fn: () => void) => void;
+        }
       | undefined;
     if (!controls) return;
     controls.autoRotate = autoRotate;
     controls.autoRotateSpeed = 1.2;
+    // Any orbit, pan or wheel from the analyst ends automatic framing.
+    const takeControl = () => {
+      userAdjustedRef.current = true;
+    };
+    controls.addEventListener?.("start", takeControl);
+    return () => controls.removeEventListener?.("start", takeControl);
   }, [autoRotate, dimensions.width]);
 
 
@@ -533,7 +768,8 @@ export const KnowledgeGraphView: React.FC<KnowledgeGraphViewProps> = ({
           <div className="flex justify-between items-center pb-3 border-b border-line text-xs font-mono">
             <div className="flex items-center gap-3">
               <span className="text-ink-muted">
-                Spatial Engine // 7 Nodes &bull; 8 Conduits
+                Spatial Engine // {graphData.nodes.length} Nodes &bull;{" "}
+                {graphData.links.length} Conduits
               </span>
               {hoveredNode && (
                 <span className="text-info-ink hidden sm:inline">
@@ -582,8 +818,21 @@ export const KnowledgeGraphView: React.FC<KnowledgeGraphViewProps> = ({
         backgroundColor="#08090c"
                 // Node radius carries the attribution confidence, so a
                 // weakly-linked entity visibly sits smaller than a confirmed one.
+                nodeRelSize={1}
                 nodeVal={readNodeVal}
                 nodeColor={readNodeColor}
+                // Always-on text, see buildLabelSprite.
+                nodeThreeObject={attachLabel}
+                nodeThreeObjectExtend={extendNode}
+                // With no d3Force prop the layout uses d3 defaults, which
+                // collapse a seven-node graph into a ~60-unit blob with almost
+                // every node overlapping its neighbour. Charge and link distance
+                // set the spread. There is still no collide force, since d3-force
+                // is not a resolvable dependency here, so a strongly-linked pair
+                // of high-confidence nodes can still sit close; the link distance
+                // is well clear of the largest node diameter (19.2) to keep that
+                // pair readable.
+                d3Force={applyForces}
                 nodeLabel={(node: ForceNode) =>
                   `<div style="font-family:ui-monospace,monospace;font-size:11px;background:rgba(10,14,23,.92);border:1px solid ${node.color};padding:6px 8px;color:#f1f5f9">
                      <div style="font-weight:700">${node.label}</div>
@@ -605,34 +854,59 @@ export const KnowledgeGraphView: React.FC<KnowledgeGraphViewProps> = ({
                 cooldownTicks={120}
                 warmupTicks={40}
                 d3VelocityDecay={0.35}
+                onEngineStop={handleEngineStop}
                 enableNodeDrag
                 enablePointerInteraction
               />
             )}
 
-            {/* Legend: the colour encoding a reviewer needs to read the graph */}
-            <div className="absolute top-3 right-3 bg-card/85 border border-line px-3 py-2 text-[10px] font-mono pointer-events-none z-10 space-y-1">
-              <div className="flex items-center gap-2">
-                <span className="inline-block w-4 h-0.5 bg-info"></span>
-                <span className="text-ink">Deterministic proof</span>
+            {/* Legend. Two independent encodings are in play here: node colour
+                means entity type, link colour means evidentiary weight. The old
+                legend mixed them and named only one node colour, so it read as a
+                single binary that the graph did not implement. Swatch colours come
+                from colorMap so they cannot drift from the nodes themselves. */}
+            <div className="absolute top-3 right-3 bg-card/85 border border-line px-3 py-2 text-[10px] font-mono pointer-events-none z-10">
+              <div className="text-ink-faint uppercase tracking-widest mb-1.5">
+                Link &mdash; evidence
               </div>
-              <div className="flex items-center gap-2">
-                <span className="inline-block w-4 h-0.5 bg-rose-400"></span>
-                <span className="text-ink">Probabilistic lead</span>
+              <div className="space-y-1">
+                <div className="flex items-center gap-2">
+                  <span className="inline-block w-4 h-0.5 bg-info"></span>
+                  <span className="text-ink">Deterministic proof</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="inline-block w-4 h-0.5 bg-rose-400"></span>
+                  <span className="text-ink">Probabilistic lead</span>
+                </div>
               </div>
-              <div className="flex items-center gap-2">
-                <span className="inline-block w-2.5 h-2.5 bg-rose-400"></span>
-                <span className="text-ink">Threat actor</span>
+              <div className="text-ink-faint uppercase tracking-widest mt-2.5 mb-1.5">
+                Node &mdash; entity type
+              </div>
+              <div className="space-y-1">
+                {presentTypes.map((type) => (
+                  <div key={type} className="flex items-center gap-2">
+                    <span
+                      className="inline-block w-2.5 h-2.5 rounded-full"
+                      style={{ backgroundColor: colorMap[type] }}
+                    ></span>
+                    <span className="text-ink">{TYPE_LABELS[type] ?? type}</span>
+                  </div>
+                ))}
               </div>
             </div>
 
-            {/* Quick 3D Interaction Instructions Overlay */}
-            <div className="absolute bottom-3 left-3 bg-card/85 border border-line px-3 py-1.5 text-[10px] font-mono text-ink-muted pointer-events-none z-10 flex items-center gap-3">
-              <span><strong className="text-ink">Left Drag:</strong> Rotate 360°</span>
-              <span><strong className="text-ink">Scroll:</strong> Zoom</span>
-              <span><strong className="text-ink">Right Drag:</strong> Pan</span>
-              <span><strong className="text-ink">Click Node:</strong> Lock Focus</span>
-            </div>
+          </div>
+
+          {/* Interaction hints live in normal flow under the canvas rather than
+              as an absolute overlay inside it. Absolutely positioned, the bar
+              collided with the caption at the bottom edge and could not reflow;
+              here it wraps instead, so it cannot overlap anything. */}
+          <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-[10px] font-mono text-ink-muted">
+            <span><strong className="text-ink">Left Drag:</strong> Rotate</span>
+            <span><strong className="text-ink">Scroll:</strong> Zoom</span>
+            <span><strong className="text-ink">Right Drag:</strong> Pan</span>
+            <span><strong className="text-ink">Click Node:</strong> Focus + inspect</span>
+            <span><strong className="text-ink">Drag Node:</strong> Reposition</span>
           </div>
         </div>
 
