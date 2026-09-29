@@ -9,7 +9,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.db import get_db
-from app.models import Case, CustodyRow, InvestigationJob
+from app.models import Case, CustodyRow, InvestigationJob, InvestigationSnapshot
 from app.schemas import (
     EVIDENCE_ID_PATTERN,
     CaseCreate,
@@ -116,7 +116,7 @@ async def start_investigation(
             db=db,
             operator=principal.operator,
             action="START_INVESTIGATION",
-            case_id=result.case.evidence_id,
+            case_id=db.execute(select(Case.id).where(Case.evidence_id == result.case.evidence_id)).scalar_one_or_none(),
             details={
                 "case_name": payload.case_name,
                 "target": payload.target,
@@ -167,8 +167,9 @@ async def start_investigation(
         db=db,
         operator=principal.operator,
         action="START_INVESTIGATION_JOB",
-        case_id=evidence_id,
+        case_id=None,
         details={
+            "evidence_id": evidence_id,
             "job_id": job_id,
             "case_name": payload.case_name,
             "target": payload.target,
@@ -193,16 +194,26 @@ def get_case_investigation(
     principal: InvestigatorPrincipal = Depends(verify_investigator_auth),
 ) -> InvestigationResultOut:
     case = _get_case_or_404(db, evidence_id)
-    req = InvestigationStartRequest(
-        case_name=f"Case {case.evidence_id}",
-        evidence_id=case.evidence_id,
-        actor_name=case.actor_name,
-        target=case.target_url or case.onion_url or "185.220.101.42",
-        target_type=case.target_type or "onion",
-        known_pgp=case.pgp_fingerprint,
-        known_btc=case.btc_root,
-    )
-    return run_full_investigation(req, db)
+    snap = db.execute(select(InvestigationSnapshot).where(InvestigationSnapshot.case_id == case.id)).scalar_one_or_none()
+    if snap is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"No stored investigation for '{case.evidence_id}'. Start one with POST /api/cases/investigate.",
+        )
+    stored = dict(snap.payload)
+    chain = CustodyChain.from_rows([
+        {"seq": r.seq, "timestamp": r.timestamp, "actor": r.actor, "action": r.action,
+         "prev_hash": r.prev_hash, "entry_hash": r.entry_hash,
+         "signature": r.signature, "key_id": r.key_id}
+        for r in case.custody
+    ])
+    valid, broken_at = chain.verify()
+    stored["case"] = CaseOut.model_validate(case).model_dump(mode="json")
+    stored["custody_verification"] = {
+        "valid": valid, "broken_at_seq": broken_at,
+        "entry_count": len(chain.entries), "seal": chain.seal(),
+    }
+    return InvestigationResultOut(**stored)
 
 
 @router.post("", response_model=CaseOut, status_code=201)

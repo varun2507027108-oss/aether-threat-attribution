@@ -39,7 +39,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy.orm.attributes import flag_modified
 
 from app.db import SessionLocal
-from app.models import AuditLog, Case, CustodyRow, Evidence, EvidenceCorrelation, InvestigationJob
+from app.models import InvestigationSnapshot, AuditLog, Case, CustodyRow, Evidence, EvidenceCorrelation, InvestigationJob
 from app.schemas import CaseOut, InvestigationResultOut, InvestigationStartRequest
 from app.services.anchor import checkpoint_if_needed
 from app.services.custody import GENESIS_HASH, CustodyChain, CustodyEntry
@@ -169,7 +169,7 @@ async def _run_module_favicon(
     favicon_bytes = b"AETHER_FORENSIC_FAVICON_ICON_DATA_BENCHMARK_2026"
     calculated_mmh3 = await asyncio.to_thread(compute_shodan_favicon_hash, favicon_bytes)
     mmh3_val = -129482710
-    mmh3_prov = "LIVE_SOURCE" if mode == "live" else "DEMO_DATA"
+    mmh3_prov = "DEMO_DATA"  # hash value is a fixed benchmark, no live probe
 
     ev = Evidence(
         case_id=case_id,
@@ -224,7 +224,7 @@ async def _run_module_stylometry(
         "If you want the access dump, ping me. Prices are firm; don't waste my time with lowball offers. "
         "Payment in BTC only - no exceptions, no refunds. Trust is earned, not begged for."
     )
-    stylo_prov = "LIVE_SOURCE" if payload.text_sample else "DEMO_DATA"
+    stylo_prov = "DEMO_DATA"  # compared against a built-in reference text
     stylo_result = await asyncio.to_thread(analyze_stylometry, target_sample, DEFAULT_REFERENCE_TEXT)
 
     ev = Evidence(
@@ -297,7 +297,7 @@ async def _run_module_pgp(
 ) -> ModuleExecutionResult:
     pgp_input = payload.known_pgp.strip() if payload.known_pgp else "4D9E 27BC 918A 4F02 C731 09AE 2C5B 88E1 40FA 7D3C"
     pgp_norm = await asyncio.to_thread(normalize_pgp_fingerprint, pgp_input)
-    pgp_prov = "LIVE_SOURCE" if payload.known_pgp else "DEMO_DATA"
+    pgp_prov = "DEMO_DATA"  # format check is real; forum reuse is not looked up
 
     ev = Evidence(
         case_id=case_id,
@@ -313,7 +313,7 @@ async def _run_module_pgp(
             "key_id_long": pgp_norm.get("key_id_long", ""),
             "key_id_short": pgp_norm.get("key_id_short", ""),
             "algorithm": pgp_norm.get("algorithm", "RSA 4096-bit"),
-            "cross_forum_reuse": ["Dread Forum", "Exploit.in", "Darknet-Escrow"],
+            "cross_forum_reuse": [],  # no forum lookup is performed
             "evidentiary_caveat": "Deterministic cryptographic indicator when private key signatures are verified; public key republication alone must be verified against signature timestamps.",
         },
         created_at=_utcnow(),
@@ -321,11 +321,11 @@ async def _run_module_pgp(
     timeline_entry = {
         "step": 4,
         "title": "PGP Key Fingerprint Verified",
-        "description": f"Validated 40-character key ID {pgp_norm.get('key_id_long', '4D9E27BC918A4F02')} with deterministic reuse.",
+        "description": f"Validated 40-character key ID {pgp_norm.get('key_id_long', '4D9E27BC918A4F02')} (format check only).",
         "timestamp": _utcnow_iso(),
         "status": "COMPLETED",
     }
-    custody_action = f"PGP key fingerprint verified ({pgp_norm.get('key_id_short', 'KEY')}). Reused across 3 darknet forums."
+    custody_action = f"PGP key fingerprint verified ({pgp_norm.get('key_id_short', 'KEY')}). Forum reuse not checked."
     summary = f"Key ID {pgp_norm.get('key_id_short', 'KEY')} validated"
 
     return ModuleExecutionResult(
@@ -357,7 +357,7 @@ async def _run_module_origin_ip(
         raw_value=origin_ip,
         normalized_hash=hashlib.sha256(origin_ip.encode()).hexdigest(),
         confidence=0.96,
-        provenance="DEMO_DATA" if mode != "live" else "LIVE_SOURCE",
+        provenance="DEMO_DATA",
         source_reference="Apache /server-status leak + Favicon MurmurHash3 correlation",
         metadata_json={
             "origin_ip": origin_ip,
@@ -494,7 +494,7 @@ async def _run_module_crypto(
         raw_value=btc_root,
         normalized_hash=hashlib.sha256(btc_root.encode()).hexdigest(),
         confidence=0.88,
-        provenance="LIVE_SOURCE" if payload.known_btc else "DEMO_DATA",
+        provenance="DEMO_DATA",  # clusters built-in benchmark transactions
         source_reference="AETHER Blockchain Peel Clustering Engine",
         metadata_json={
             "root_address": btc_root,
@@ -998,6 +998,7 @@ async def run_full_investigation_async(
                     "summary": res.summary,
                 })
             return res
+
         except Exception as exc:
             finished_at = _utcnow_iso()
             err_msg = f"Timed out after {AETHER_MODULE_TIMEOUT}s" if isinstance(exc, asyncio.TimeoutError) else str(exc)
@@ -1433,6 +1434,16 @@ async def run_full_investigation_async(
         provenance_summary=provenance_summary,
         timeline=timeline,
     )
+
+    # Persist the result so later case views read it instead of re-running the pipeline
+    snap_payload = result_out.model_dump(mode="json")
+    snap = db.execute(select(InvestigationSnapshot).where(InvestigationSnapshot.case_id == case.id)).scalar_one_or_none()
+    if snap is None:
+        db.add(InvestigationSnapshot(case_id=case.id, payload=snap_payload))
+    else:
+        snap.payload = snap_payload
+        snap.created_at = _utcnow()
+    db.commit()
 
     # Cache result and publish terminal event if job_id is active
     if job_id:
