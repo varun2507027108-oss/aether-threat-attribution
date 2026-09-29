@@ -260,10 +260,10 @@ export const CustodyLedgerView: React.FC<CustodyLedgerViewProps> = ({
           <button
             onClick={handleVerify}
             disabled={verifying}
-            className="px-4 py-2.5 min-h-11 bg-active hover:bg-info-hover text-white text-xs font-bold font-mono transition border border-line-active flex items-center gap-2"
+            className="px-4 py-2.5 min-h-11 bg-active hover:bg-info-hover text-ink text-xs font-bold font-mono transition border border-line-active flex items-center gap-2"
           >
             {verifying ? (
-              <span className="inline-block w-3.5 h-3.5 border-2 border-white border-t-transparent animate-spin"></span>
+              <span className="inline-block w-3.5 h-3.5 border-2 border-ink border-t-transparent animate-spin"></span>
             ) : (
               <i className="fa-solid fa-shield-halved text-xs"></i>
             )}
@@ -281,7 +281,7 @@ export const CustodyLedgerView: React.FC<CustodyLedgerViewProps> = ({
             </div>
             <div>
               <span className="text-ink-muted uppercase text-[10px]">Ledger Cryptographic Seal</span>
-              <p className="text-white font-bold break-all text-[11px] mt-0.5">{verification.seal}</p>
+              <p className="text-ink font-bold break-all text-[11px] mt-0.5">{verification.seal}</p>
             </div>
           </div>
           {/* "7 Verified Blocks" (the engine's count) and "Total Blocks: 4"
@@ -442,7 +442,7 @@ export const CustodyLedgerView: React.FC<CustodyLedgerViewProps> = ({
       {/* Main Ledger Table Card */}
       <div className="matte-card p-5">
         <div className="flex justify-between items-center pb-3 border-b border-line">
-          <h3 className="text-sm font-bold text-white uppercase tracking-wider font-mono">
+          <h3 className="text-sm font-bold text-ink uppercase tracking-wider font-mono">
             Every step, in order ({evidenceId})
           </h3>
           <span className="text-xs text-ink-muted font-mono">
@@ -462,7 +462,7 @@ export const CustodyLedgerView: React.FC<CustodyLedgerViewProps> = ({
                 <th className="py-2.5 px-3 text-right">Status</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-[#161d28]">
+            <tbody className="divide-y divide-line-faint">
               {loading ? (
                 <tr>
                   <td colSpan={6} className="text-center py-8 text-ink-muted">
@@ -511,7 +511,7 @@ export const CustodyLedgerView: React.FC<CustodyLedgerViewProps> = ({
                     <td className="py-3 px-3 text-ink-muted text-[11px] whitespace-nowrap">
                       {entry.timestamp}
                     </td>
-                    <td className="py-3 px-3 text-white font-semibold">{entry.actor}</td>
+                    <td className="py-3 px-3 text-ink font-semibold">{entry.actor}</td>
                     <td className="py-3 px-3 text-ink font-sans text-xs">
                       {entry.action}
                     </td>
@@ -552,7 +552,7 @@ export const CustodyLedgerView: React.FC<CustodyLedgerViewProps> = ({
         {/* Form (2 Columns) */}
         <div className="lg:col-span-2 matte-card p-5">
           <div className="flex justify-between items-center pb-3 border-b border-line">
-            <h3 className="text-sm font-bold text-white uppercase tracking-wider font-mono">
+            <h3 className="text-sm font-bold text-ink uppercase tracking-wider font-mono">
               Add a step to the log
             </h3>
             <span className="text-[10px] text-ink-muted font-mono">Each step is fingerprinted</span>
@@ -642,10 +642,10 @@ export const CustodyLedgerView: React.FC<CustodyLedgerViewProps> = ({
             <button
               type="submit"
               disabled={submitting}
-              className="px-5 py-2.5 min-h-11 bg-active hover:bg-info-hover text-white font-bold transition border border-line-active flex items-center gap-2"
+              className="px-5 py-2.5 min-h-11 bg-active hover:bg-info-hover text-ink font-bold transition border border-line-active flex items-center gap-2"
             >
               {submitting ? (
-                <span className="inline-block w-3.5 h-3.5 border-2 border-white border-t-transparent animate-spin"></span>
+                <span className="inline-block w-3.5 h-3.5 border-2 border-ink border-t-transparent animate-spin"></span>
               ) : (
                 <i className="fa-solid fa-link text-xs" aria-hidden="true"></i>
               )}
@@ -658,7 +658,7 @@ export const CustodyLedgerView: React.FC<CustodyLedgerViewProps> = ({
         <div className="matte-card p-5 flex flex-col justify-between">
           <div>
             <div className="flex justify-between items-center pb-3 border-b border-line">
-              <h3 className="text-sm font-bold text-white uppercase tracking-wider font-mono">
+              <h3 className="text-sm font-bold text-ink uppercase tracking-wider font-mono">
                 For court
               </h3>
               <span className="text-[10px] text-ink-muted font-mono">Export</span>

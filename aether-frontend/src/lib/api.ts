@@ -1078,12 +1078,24 @@ function buildFallbackInvestigation(req: InvestigationRequest): InvestigationRes
       node_count: 7,
       edge_count: 6,
       nodes: [
-        { id: "actor-1", label: actor, type: "threat-actor", metadata: { confidence: "94.8%", color: "#f87171" } },
-        { id: "target-1", label: target, type: targetType, metadata: { confidence: "98.0%", color: "#c084fc" } },
-        { id: "ip-1", label: "185.220.101.42", type: "ipv4", metadata: { confidence: "96.5%", color: "#38bdf8" } },
-        { id: "pgp-1", label: "4D9E 27BC...", type: "pgp", metadata: { confidence: "100.0%", color: "#4ade80" } },
-        { id: "btc-1", label: "1A1zP1...", type: "wallet", metadata: { confidence: "88.5%", color: "#fbbf24" } },
-        { id: "hash-1", label: "mmh3: -129482710", type: "hash", metadata: { confidence: "99.0%", color: "#22d3ee" } },
+        /*
+         * No `color` in this metadata, and its removal is the point.
+         *
+         * These six hexes were byte-identical to the graph view's own colour
+         * map -- a third copy of one palette, in a file that is otherwise an API
+         * client. Because the graph preferred a server-supplied colour over its
+         * own map, these values won, which meant a real backend response
+         * carrying the same field would have pinned the graph to the dark
+         * palette no matter which theme was selected. The node `type` is the
+         * only thing that should decide a node's colour, and the type is
+         * already here.
+         */
+        { id: "actor-1", label: actor, type: "threat-actor", metadata: { confidence: "94.8%" } },
+        { id: "target-1", label: target, type: targetType, metadata: { confidence: "98.0%" } },
+        { id: "ip-1", label: "185.220.101.42", type: "ipv4", metadata: { confidence: "96.5%" } },
+        { id: "pgp-1", label: "4D9E 27BC...", type: "pgp", metadata: { confidence: "100.0%" } },
+        { id: "btc-1", label: "1A1zP1...", type: "wallet", metadata: { confidence: "88.5%" } },
+        { id: "hash-1", label: "mmh3: -129482710", type: "hash", metadata: { confidence: "99.0%" } },
       ],
       edges: [
         { source: "actor-1", target: "target-1", relationship: "ADMINISTRATES", weight: 0.98, deterministic: true },

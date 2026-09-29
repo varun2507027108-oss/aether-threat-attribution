@@ -196,7 +196,7 @@ export const StylometryLabModal: React.FC<StylometryLabModalProps> = ({
         {/* Header */}
         <div className="flex justify-between items-center border-b border-line pb-4">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 bg-active text-white flex items-center justify-center text-base border border-line-active">
+            <div className="w-10 h-10 bg-active text-ink flex items-center justify-center text-base border border-line-active">
               <i className="fa-solid fa-fingerprint"></i>
             </div>
             <div>
@@ -204,7 +204,7 @@ export const StylometryLabModal: React.FC<StylometryLabModalProps> = ({
                 <span className="text-[10px] font-mono font-bold px-1.5 py-0.5 bg-info-surface text-ink border border-line-strong">
                   AI LAB
                 </span>
-                <h3 className="text-base font-bold text-white">
+                <h3 className="text-base font-bold text-ink">
                   Stylometry NLP Comparison Engine
                 </h3>
               </div>
@@ -258,10 +258,10 @@ export const StylometryLabModal: React.FC<StylometryLabModalProps> = ({
             <button
               onClick={handleRun}
               disabled={loading}
-              className="px-5 py-2.5 bg-active hover:bg-info-hover text-white text-xs font-bold font-mono transition border border-line-active flex items-center gap-2"
+              className="px-5 py-2.5 bg-active hover:bg-info-hover text-ink text-xs font-bold font-mono transition border border-line-active flex items-center gap-2"
             >
               {loading ? (
-                <span className="inline-block w-3.5 h-3.5 border-2 border-white border-t-transparent animate-spin"></span>
+                <span className="inline-block w-3.5 h-3.5 border-2 border-ink border-t-transparent animate-spin"></span>
               ) : (
                 <i className="fa-solid fa-calculator text-xs"></i>
               )}

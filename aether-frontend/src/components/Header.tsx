@@ -2,6 +2,7 @@
 
 import React, { useEffect, useState } from "react";
 import type { ToastSeverity } from "@/components/Toast";
+import { ThemeToggle } from "@/components/ThemeToggle";
 import { CaseListItem, confirmExport, fetchWhoAmI, WhoAmIResult } from "@/lib/api";
 
 interface HeaderProps {
@@ -324,6 +325,8 @@ export const Header: React.FC<HeaderProps> = ({
         >
           <i className="fa-solid fa-shield-halved text-sm" aria-hidden="true"></i>
         </a>
+
+        <ThemeToggle />
 
         <button
           type="button"

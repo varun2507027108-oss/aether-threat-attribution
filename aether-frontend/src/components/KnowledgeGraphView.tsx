@@ -11,6 +11,7 @@ import type {
   NodeObject,
 } from "react-force-graph-3d";
 import { InvestigationResult } from "@/lib/api";
+import { readTokensFor, useThemeName } from "@/lib/theme";
 
 /**
  * react-force-graph-3d touches `window` at module scope, so importing it
@@ -103,21 +104,143 @@ function readNodeVal(node: WrappedNode): number {
   return (node as unknown as ForceNode).val ?? 4;
 }
 
+/*
+ * The 3D scene paints through WebGL, and WebGL does not resolve CSS custom
+ * properties: `new THREE.Color("var(--color-node-actor)")` silently yields
+ * black, and assigning an unparseable value to ctx.fillStyle keeps the previous
+ * one. So the canvas cannot simply be pointed at the tokens the way every other
+ * surface in the product is. Instead the tokens are read back out of the
+ * cascade and handed to three.js as literals.
+ *
+ * That is only safe if the read happens per theme rather than per module, which
+ * is what useThemeName below arranges. The alternative -- keeping the old
+ * literals here and hoping they match globals.css -- is exactly the drift that
+ * this file is being fixed for.
+ */
+interface GraphPalette {
+  canvas: string;
+  ink: string;
+  inkMuted: string;
+  overlay: string;
+  node: Record<NodeData["type"], string>;
+  linkConfirmed: string;
+  linkGuess: string;
+  /**
+   * Whether these colours are being drawn on a light canvas.
+   *
+   * This is not a colour, it is how those colours have to be composited. The
+   * link ramp is the one place alpha carries meaning, and alpha behaves
+   * asymmetrically: the same 30% cyan that reads as a clear cyan line against
+   * near-black reads as pale grey-blue against a white canvas, because it is
+   * mixing with white rather than with black. Lightening the hue alone is not
+   * enough -- a light hue at low alpha still washes out -- so the light theme
+   * also needs a higher opacity floor.
+   */
+  onLightSurface: boolean;
+}
+
+const GRAPH_TOKENS = [
+  "--color-canvas",
+  "--color-ink",
+  "--color-ink-muted",
+  "--color-overlay",
+  "--color-node-actor",
+  "--color-node-ipv4",
+  "--color-node-pgp",
+  "--color-node-wallet",
+  "--color-node-hash",
+  "--color-node-darknet",
+  "--color-link-confirmed",
+  "--color-link-guess",
+] as const;
+
+/** "#38bdf8" or "#3bd" -> [r, g, b]. Returns null on anything unparseable. */
+function hexToRgb(value: string): [number, number, number] | null {
+  const h = value.trim().replace(/^#/, "");
+  const full = h.length === 3 ? h.split("").map((c) => c + c).join("") : h;
+  if (!/^[0-9a-fA-F]{6}$/.test(full)) return null;
+  return [
+    parseInt(full.slice(0, 2), 16),
+    parseInt(full.slice(2, 4), 16),
+    parseInt(full.slice(4, 6), 16),
+  ];
+}
+
+function withAlpha(hex: string, alpha: number): string {
+  const rgb = hexToRgb(hex);
+  // An unresolved token must not render as a black link. Falling back to fully
+  // transparent keeps the graph readable while the stylesheet settles, and a
+  // missing link is far less misleading than a wrong-coloured one.
+  return rgb ? `rgba(${rgb[0]}, ${rgb[1]}, ${rgb[2]}, ${alpha})` : "rgba(0, 0, 0, 0)";
+}
+
+/**
+ * Re-stamp a fixture node with the colour the current theme gives its type.
+ *
+ * `hexColor` is the number three.js reads, so both it and the CSS-facing
+ * `color` have to move together; leaving one of them stale is how the spheres
+ * and the legend end up disagreeing.
+ */
+function withPaletteColor(node: NodeData, colorMap: Record<string, string>): NodeData {
+  const color = colorMap[node.type] ?? node.color;
+  const parsed = parseInt(color.replace("#", ""), 16);
+  return {
+    ...node,
+    color,
+    hexColor: Number.isNaN(parsed) ? node.hexColor : parsed,
+  };
+}
+
+function paletteFromTokens(tokens: Record<string, string>): GraphPalette {
+  return {
+    canvas: tokens["--color-canvas"] || "#08090c",
+    ink: tokens["--color-ink"] || "#f1f5f9",
+    inkMuted: tokens["--color-ink-muted"] || "#94a3b8",
+    overlay: tokens["--color-overlay"] || "#1c2433",
+    node: {
+      "threat-actor": tokens["--color-node-actor"] || "#f87171",
+      ipv4: tokens["--color-node-ipv4"] || "#38bdf8",
+      pgp: tokens["--color-node-pgp"] || "#4ade80",
+      wallet: tokens["--color-node-wallet"] || "#fbbf24",
+      hash: tokens["--color-node-hash"] || "#60a5fa",
+      darknet: tokens["--color-node-darknet"] || "#e879f9",
+    },
+    linkConfirmed: tokens["--color-link-confirmed"] || "#38bdf8",
+    linkGuess: tokens["--color-link-guess"] || "#fb923c",
+    onLightSurface: (tokens["--color-canvas"] || "").toLowerCase() === "#eef1f6",
+  };
+}
+
 function readNodeColor(node: WrappedNode): string {
   const node_ = node as unknown as ForceNode;
   return `#${(node_.hexColor ?? 0x38bdf8).toString(16).padStart(6, "0")}`;
 }
 
 // Link colour encodes the evidentiary weight of the relation: deterministic
-// cryptographic links read cyan, probabilistic NLP/circadian leads read rose.
-// A graph that colours links identically cannot show the reviewer which
+// cryptographic links read one way, probabilistic NLP/circadian leads read the
+// other. A graph that colours links identically cannot show the reviewer which
 // connections are proof and which are inference.
-function linkColor(link: ForceLink): string {
+//
+// The two are complementary -- cyan at 199 degrees and orange at 25 -- rather
+// than the cyan-and-rose they were before. That is not decoration. A guess and
+// a proof must be distinguishable at a glance, on a bad projector, and for a
+// reviewer with red-green colour blindness; two neighbouring tints fail all
+// three, and a colour that carries evidentiary meaning should not be one of
+// the two the eye is worst at separating.
+function linkColor(link: ForceLink, palette: GraphPalette): string {
   const weight = link.confidence ?? (link.isDeterministic ? 0.95 : 0.45);
   if (link.isDeterministic) {
-    return `rgba(56, 189, 248, ${0.25 + weight * 0.7})`;
+    const alpha = palette.onLightSurface
+      ? 0.5 + weight * 0.5
+      : 0.25 + weight * 0.7;
+    return withAlpha(palette.linkConfirmed, alpha);
   }
-  return `rgba(251, 113, 133, ${0.2 + (1 - weight) * 0.65})`;
+  // A guess keeps a lower ceiling than a proof on both surfaces, so the two
+  // never sit at the same strength even when their confidences are close.
+  const alpha = palette.onLightSurface
+    ? 0.45 + (1 - weight) * 0.45
+    : 0.2 + (1 - weight) * 0.65;
+  return withAlpha(palette.linkGuess, alpha);
 }
 
 function linkWidth(link: ForceLink): number {
@@ -150,7 +273,12 @@ function truncateLabel(label: string): string {
   return label.length > MAX_LABEL_CHARS ? `${label.slice(0, MAX_LABEL_CHARS - 1)}…` : label;
 }
 
-function buildLabelSprite(node: ForceNode, radius: number, below: boolean): THREE.Sprite {
+function buildLabelSprite(
+  node: ForceNode,
+  radius: number,
+  below: boolean,
+  ink: string,
+): THREE.Sprite {
   const fontPx = 44;
   const padding = 14;
   const font = `600 ${fontPx}px ui-monospace, SFMono-Regular, Menlo, monospace`;
@@ -177,11 +305,14 @@ function buildLabelSprite(node: ForceNode, radius: number, below: boolean): THRE
     // No background plate. A filled rect behind the text leaves a visible
     // rectangular tint floating over the scene, and with alpha blending on
     // premultiplied edges it also softens the glyphs. The label sits above its
-    // own node against the canvas, which is dark enough to carry light text,
-    // and the accent bar below supplies the type-colour key.
+    // own node against the canvas, and the accent bar below supplies the
+    // type-colour key.
     ctx.fillStyle = node.color;
     ctx.fillRect(0, height - 4, width, 4);
-    ctx.fillStyle = "#f1f5f9";
+    // --color-ink rather than a literal: this is the one glyph colour in the
+    // product that a theme switch would otherwise leave stranded, because a
+    // hardcoded near-white on a light canvas is invisible.
+    ctx.fillStyle = ink;
     ctx.fillText(text, width / 2, height / 2 - 2);
 
     const texture = new THREE.CanvasTexture(canvas);
@@ -436,16 +567,24 @@ export const KnowledgeGraphView: React.FC<KnowledgeGraphViewProps> = ({
   onShowToast,
   onOpenEvidence,
 }) => {
+  // Resolved per theme, so flipping the switch repaints the sphere colours,
+  // the link colours, the label glyphs and the canvas behind them together.
+  const themeName = useThemeName();
+  const palette = React.useMemo(
+    () => paletteFromTokens(readTokensFor(themeName, GRAPH_TOKENS)),
+    [themeName],
+  );
+
   const colorMap: Record<string, string> = React.useMemo(
     () => ({
-      "threat-actor": "#f87171",
-      "ipv4": "#38bdf8",
-      "pgp": "#4ade80",
-      "wallet": "#fbbf24",
-      "darknet": "#c084fc",
-      "hash": "#22d3ee",
+      "threat-actor": palette.node["threat-actor"],
+      "ipv4": palette.node.ipv4,
+      "pgp": palette.node.pgp,
+      "wallet": palette.node.wallet,
+      "darknet": palette.node.darknet,
+      "hash": palette.node.hash,
     }),
-    [],
+    [palette],
   );
 
   const typeMap: Record<string, NodeData["type"]> = React.useMemo(
@@ -470,7 +609,11 @@ export const KnowledgeGraphView: React.FC<KnowledgeGraphViewProps> = ({
 
   const activeNodes: NodeData[] = React.useMemo(() => {
     if (!investigation?.graph?.nodes || investigation.graph.nodes.length === 0) {
-      return NODES;
+      // The offline fixture carried its own copy of the six palette hexes. They
+      // were byte-identical to the ones above, so nothing changed visually --
+      // but it meant a second place to forget to update, and one that could
+      // not follow the theme. The type alone now decides the colour.
+      return NODES.map((n) => withPaletteColor(n, colorMap));
     }
     const rawNodes = investigation.graph.nodes;
 
@@ -484,7 +627,16 @@ export const KnowledgeGraphView: React.FC<KnowledgeGraphViewProps> = ({
        * number-typed field and only failed at render.
        */
       const rawColor = typeof meta.color === "string" ? meta.color : null;
-      const nodeColor = rawColor || colorMap[mappedType] || "#38bdf8";
+      /*
+       * The token wins over a colour supplied by the backend. The legend in
+       * this same file has always coloured its swatches from the type map, so
+       * letting a server-supplied hex take precedence let the legend and the
+       * spheres it was labelling disagree -- and, once a light theme existed,
+       * let a dark-palette hex arrive on a white canvas. A backend colour is
+       * still honoured for a type the map does not know, which is the case it
+       * is actually useful for.
+       */
+      const nodeColor = colorMap[mappedType] || rawColor || palette.canvas;
       const hexColor = parseInt(nodeColor.replace("#", ""), 16) || 0x38bdf8;
       const subtext =
         typeof meta.subtext === "string" ? meta.subtext : `${mappedType.toUpperCase()} node`;
@@ -508,7 +660,7 @@ export const KnowledgeGraphView: React.FC<KnowledgeGraphViewProps> = ({
         pos: [0, 0, 0] as [number, number, number],
       };
     });
-  }, [investigation, colorMap, typeMap]);
+  }, [investigation, colorMap, palette.canvas, typeMap]);
 
   const activeEdges: EdgeData[] = React.useMemo(() => {
     if (!investigation?.graph?.edges || investigation.graph.edges.length === 0) {
@@ -632,13 +784,17 @@ export const KnowledgeGraphView: React.FC<KnowledgeGraphViewProps> = ({
   const getLabelSprite = React.useCallback((node: ForceNode, index: number) => {
     const radius = nodeRadius(node);
     const below = index % 2 === 1;
-    const key = `${node.id}::${node.label}::${node.confidence}::${radius.toFixed(2)}::${below}`;
+    // The resolved ink is part of the key, not just a parameter. Without it a
+    // theme switch finds every cached sprite still valid and reuses near-white
+    // glyphs on what is now a white canvas, which is precisely the bug this
+    // change exists to prevent.
+    const key = `${node.id}::${node.label}::${node.confidence}::${radius.toFixed(2)}::${below}::${palette.ink}`;
     const cached = spriteCache.current.get(key);
     if (cached) return cached;
-    const sprite = buildLabelSprite(node, radius, below);
+    const sprite = buildLabelSprite(node, radius, below, palette.ink);
     spriteCache.current.set(key, sprite);
     return sprite;
-  }, []);
+  }, [palette.ink]);
 
   // A new function identity on every render makes the library treat these as
   // changed props, flush the scene objects and restart the simulation, so they
@@ -858,7 +1014,7 @@ export const KnowledgeGraphView: React.FC<KnowledgeGraphViewProps> = ({
               onClick={() => setFilterType(t)}
               className={`px-3 py-1.5 min-h-11 font-mono uppercase text-[11px] transition border ${
                 filterType === t
-                  ? "bg-active text-white border-line-active font-bold"
+                  ? "bg-active text-ink border-line-active font-bold"
                   : "bg-surface text-ink-muted hover:text-ink border-line"
               }`}
             >
@@ -890,7 +1046,7 @@ export const KnowledgeGraphView: React.FC<KnowledgeGraphViewProps> = ({
               </span>
               {hoveredNode && (
                 <span className="text-info-ink hidden sm:inline">
-                  &bull; Hover: <strong className="text-white">{hoveredNode.label}</strong>
+                  &bull; Hover: <strong className="text-ink">{hoveredNode.label}</strong>
                 </span>
               )}
             </div>
@@ -928,11 +1084,12 @@ export const KnowledgeGraphView: React.FC<KnowledgeGraphViewProps> = ({
                 graphData={graphData}
                 width={dimensions.width}
                 height={dimensions.height}
-                // Matches --color-canvas. react-force-graph passes this to THREE.Color,
-        // which does not resolve CSS custom properties, so the literal is
-        // duplicated rather than referenced. Keep the two in step: the canvas
-        // surface is #08090c, not #000000.
-        backgroundColor="#08090c"
+                // Resolved from --color-canvas rather than hardcoded. Three.js
+                // does not read CSS custom properties, so the token is read back
+                // out of the cascade by paletteFromTokens; the alternative was
+                // a literal here that silently disagreed with the card it sits
+                // inside the moment a light theme existed.
+                backgroundColor={palette.canvas}
                 // Node radius carries the attribution confidence, so a
                 // weakly-linked entity visibly sits smaller than a confirmed one.
                 nodeRelSize={1}
@@ -967,14 +1124,36 @@ export const KnowledgeGraphView: React.FC<KnowledgeGraphViewProps> = ({
                   //
                   // node.color is constrained to a hex string by readNodeColor,
                   // but it is escaped here too so this stays safe if that
-                  // function ever widens.
-                  `<div style="font-family:ui-monospace,monospace;font-size:11px;background:rgba(10,14,23,.92);border:1px solid ${escapeHtml(node.color)};padding:6px 8px;color:#f1f5f9">
+                  // function ever widens. The two palette values are escaped for
+                  // the same reason: they come from the stylesheet, and a token
+                  // someone can edit in a commit is still a string being
+                  // concatenated into an HTML attribute.
+                  `<div style="font-family:ui-monospace,monospace;font-size:11px;background:${escapeHtml(withAlpha(palette.overlay, 0.96))};border:1px solid ${escapeHtml(node.color)};padding:6px 8px;color:${escapeHtml(palette.ink)}">
                      <div style="font-weight:700">${escapeHtml(node.label)}</div>
-                     <div style="color:#94a3b8">${escapeHtml(node.subtext)}</div>
+                     <div style="color:${escapeHtml(palette.inkMuted)}">${escapeHtml(node.subtext)}</div>
                      <div style="color:${escapeHtml(node.color)}">HOW SURE: ${escapeHtml(node.confidence)}</div>
                    </div>`
                 }
-                linkColor={(link: ForceLink) => linkColor(link)}
+                linkColor={(link: ForceLink) => linkColor(link, palette)}
+                /*
+                 * KNOWN: the library's default link material is lit, so a link
+                 * is drawn as its token multiplied by the scene lighting. On the
+                 * near-black canvas that reads as a saturated cyan line. On the
+                 * light canvas the same multiplication pushes it toward white,
+                 * which is why the light theme also raises the alpha floor in
+                 * linkColor. It is better but not fully solved.
+                 *
+                 * Supplying an unlit material was tried and reverted: passing a
+                 * Material object makes the library skip linkColor entirely and
+                 * paint every link white, and enabling vertexColors makes three
+                 * multiply that colour by a vertex buffer this scene never fills
+                 * in, so every link arrives black. Making the unlit path work
+                 * means supplying a per-link material from linkMaterial, which
+                 * allocates and disposes a material on every simulation rebuild.
+                 * Not worth it for five links; the fact-versus-guess distinction
+                 * is carried by the legend, by link width and by the hover
+                 * readout regardless.
+                 */
                 linkWidth={(link: ForceLink) => linkWidth(link)}
                 linkDirectionalArrowLength={2.5}
                 linkDirectionalArrowRelPos={1}
@@ -1005,11 +1184,21 @@ export const KnowledgeGraphView: React.FC<KnowledgeGraphViewProps> = ({
               </div>
               <div className="space-y-1">
                 <div className="flex items-center gap-2">
-                  <span className="inline-block w-4 h-0.5 bg-info"></span>
+                  <span
+                    className="inline-block w-4 h-0.5"
+                    // The two legend swatches are the link tokens themselves, so
+                    // the legend cannot describe a colour the scene is not
+                    // drawing. `bg-rose-400` was Tailwind's default palette, which
+                    // matched nothing in globals.css and could not follow a theme.
+                    style={{ backgroundColor: palette.linkConfirmed }}
+                  />
                   <span className="text-ink">Can be checked again</span>
                 </div>
                 <div className="flex items-center gap-2">
-                  <span className="inline-block w-4 h-0.5 bg-rose-400"></span>
+                  <span
+                    className="inline-block w-4 h-0.5"
+                    style={{ backgroundColor: palette.linkGuess }}
+                  />
                   <span className="text-ink">Our best guess</span>
                 </div>
               </div>
@@ -1170,7 +1359,7 @@ export const KnowledgeGraphView: React.FC<KnowledgeGraphViewProps> = ({
         <div className="matte-card p-5 flex flex-col justify-between">
           <div>
             <div className="flex justify-between items-center pb-3 border-b border-line">
-              <h3 className="text-sm font-bold text-white uppercase tracking-wider font-mono">
+              <h3 className="text-sm font-bold text-ink uppercase tracking-wider font-mono">
                 Details
               </h3>
               <span
@@ -1189,7 +1378,7 @@ export const KnowledgeGraphView: React.FC<KnowledgeGraphViewProps> = ({
               <span className="text-[10px] font-mono text-ink-muted uppercase tracking-widest block">
                 You selected
               </span>
-              <h4 className="text-lg font-bold text-white mt-0.5">{selectedNode.label}</h4>
+              <h4 className="text-lg font-bold text-ink mt-0.5">{selectedNode.label}</h4>
               <p className="text-xs text-ink-muted font-mono mt-0.5">{selectedNode.subtext}</p>
             </div>
 

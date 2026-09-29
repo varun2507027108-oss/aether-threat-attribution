@@ -8,7 +8,7 @@
 /* =====================================================================
    AETHER - DESIGN SYSTEM
    Mirrors the console exactly: 0px radius, 1px hairline borders, the same
-   near-black surface ramp and the same semantic colours, monospace data
+   seven-step surface ramp and the same semantic colours, monospace data
    type. Zero dependencies, zero network calls.
 
    The palette is the console's, not a light-mode counterpart. The verifier
@@ -18,6 +18,18 @@
    should be recognisably the same instrument. The values below are copied
    from aether-frontend/src/app/globals.css @theme; the fonts are system
    stacks because this file must work with no network.
+
+   Both themes are here now, for the same reason: a statutory certificate
+   points a third party at this file, and that third party may well be reading
+   it in a lit room or printing it into a case binder, where a near-black page
+   is a page of toner. The light half follows prefers-color-scheme rather than
+   a toggle on purpose -- this document has to work from a file:// URL with no
+   scripting assumptions, and it has no state worth persisting.
+
+   The six graph node colours and the link pair are deliberately absent: this
+   page draws a custody chain, not a knowledge graph. Every token present here
+   is asserted against globals.css by test_verify_html.py, so the copy cannot
+   quietly fall behind the console it belongs to.
    ===================================================================== */
 :root {
   /* --- Surfaces: the console's seven-step ramp ------------------------- */
@@ -35,6 +47,12 @@
   --line-strong: #273447;
   --line-active: #37455d;
 
+  /* Overlay sits above the surfaces it occludes, so it is deliberately lighter
+     than --raised. On the light theme that inversion is not available and the
+     border has to carry it instead; see the media query below. */
+  --overlay: #1c2433;
+  --overlay-line: #2b3648;
+
   /* --- Ink: all four clear 4.5:1 on --card ------------------------------ */
   --ink: #f1f5f9;
   --ink-muted: #94a3b8;
@@ -46,6 +64,7 @@
   --signal-ink: #4ade80;
   --signal-surface: #0f2419;
   --signal-line: #1f5735;
+  --signal-line-soft: #22442c;
   --alert: #dc2626;
   --alert-ink: #f87171;
   --alert-surface: #2a1215;
@@ -57,13 +76,65 @@
   --info: #38bdf8;
   --info-ink: #7dd3fc;
   --info-surface: #121a26;
+  --info-raised: #16253b;
+  --info-hover: #1f3b57;
   --info-line: #22354e;
+  --info-line-soft: #1d3a5c;
+  --info-line-strong: #2d466b;
   --focus: #7dd3fc;
 
   --border: 1px solid var(--line);
   --border-soft: 1px solid var(--line-faint);
   --font-mono: ui-monospace, "SF Mono", "Cascadia Mono", Consolas, "Liberation Mono", Menlo, monospace;
   --font-sans: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+}
+
+/* --- Light theme: prefers-color-scheme ---------------------------- */
+/* Generated from globals.css :root[data-theme="light"], prefix stripped.
+   test_verify_html.py re-checks every line against that stylesheet, so if the
+   console's light theme is retuned and this is not, the suite fails. */
+@media (prefers-color-scheme: light) {
+  :root {
+    --canvas:         #eef1f6;
+    --sunken:         #e3e9f1;
+    --input:          #f5f7fa;
+    --card:           #ffffff;
+    --surface:        #f7f9fc;
+    --raised:         #ffffff;
+    --active:         #dbe3ee;
+    --overlay:        #ffffff;
+    --line-faint:     #e6ebf3;
+    --line:           #d8e0eb;
+    --line-strong:    #b3c0d1;
+    --line-active:    #7c8b9f;
+    --overlay-line:   #8b9aae;
+    --ink:            #0d1524;
+    --ink-muted:      #3f4d66;
+    --ink-dim:        #4e5c73;
+    --ink-faint:      #55647c;
+    --signal:         #16a34a;
+    --signal-ink:     #15803d;
+    --signal-surface: #edfaf1;
+    --signal-line:    #9fe3bb;
+    --signal-line-soft:#cdefd9;
+    --alert:          #dc2626;
+    --alert-ink:      #b91c1c;
+    --alert-surface:  #fdf0f0;
+    --alert-line:     #f7bfbf;
+    --info:           #0369a1;
+    --info-ink:       #075985;
+    --info-surface:   #eff6fc;
+    --info-raised:    #dceefb;
+    --info-hover:     #c3e2f7;
+    --info-line:      #7cc4ea;
+    --info-line-soft: #b6ddf4;
+    --info-line-strong:#5aaede;
+    --warn:           #b45309;
+    --warn-ink:       #92400e;
+    --warn-surface:   #fdf6e9;
+    --warn-line:      #f0cd8f;
+    --focus:          #0369a1;
+  }
 }
 *, *::before, *::after { box-sizing: border-box; border-radius: 0 !important; box-shadow: none !important; text-shadow: none !important; }
 html, body { margin: 0; padding: 0; background: var(--canvas); color: var(--ink); font-family: var(--font-sans); font-size: 13px; line-height: 1.5; }

@@ -108,10 +108,10 @@ export const EvidenceModal: React.FC<EvidenceModalProps> = ({
             <button
               type="submit"
               disabled={loading}
-              className="w-full min-h-11 py-2.5 bg-active hover:bg-info-hover text-white font-semibold text-xs transition border border-line-active flex items-center justify-center gap-2"
+              className="w-full min-h-11 py-2.5 bg-active hover:bg-info-hover text-ink font-semibold text-xs transition border border-line-active flex items-center justify-center gap-2"
             >
               {loading ? (
-                <span className="inline-block w-3.5 h-3.5 border-2 border-white border-t-transparent animate-spin"></span>
+                <span className="inline-block w-3.5 h-3.5 border-2 border-ink border-t-transparent animate-spin"></span>
               ) : (
                 <i className="fa-solid fa-diagram-project text-xs"></i>
               )}

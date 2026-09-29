@@ -3,13 +3,27 @@
 /* ==========================================================================
    AETHER design tokens
    --------------------------------------------------------------------------
-   A dark-only console, used in a SOC at night and in an air-gapped
-   examination room. Dark is chosen from that use scene, not from category
-   habit: an analyst stares at this for hours and the surfaces must not
-   glare back.
+   Two themes, one token set. The console ships dark as its default because
+   that is the room it is used in: an analyst stares at this for hours in a SOC
+   at night, and the surfaces must not glare back. A light theme sits beside it
+   for daylight review rooms, printed case binders and projectors, where the
+   dark palette reads as a projector tint rather than as a design.
 
    Every colour in the product resolves to a token here. The 0px radius and
    the hairline 1px borders are the house identity, not a default.
+
+   Theming works by redefining the same custom properties, never by writing a
+   `dark:` variant on a component. Tailwind v4 compiles `bg-card` to
+   `background-color: var(--color-card)`, so a single override block moves all
+   ~790 token usages at once and no component has to know which theme is on.
+   That is the whole reason the palette lives in one place.
+
+   Both themes are held to the same measured standard: every ink role clears
+   4.5:1 on every surface it is actually placed on, the focus ring clears 3:1,
+   and the six graph node colours clear 3:1 as non-text. Borders stay hairline
+   in both -- the dark theme's own line-active sits at 1.97:1 -- because the
+   focus ring, not the border weight, is what carries state. See
+   aether-backend/tests/test_theme_tokens.py, which re-measures all of this.
    ========================================================================== */
 
 @theme {
@@ -38,17 +52,18 @@
   --color-line-active: #37455d;
 
   /* --- Ink ------------------------------------------------------------
-     All four clear 4.5:1 on `--color-card`. The old slate-500 role failed
-     at 4.33:1 and is deliberately gone rather than nudged. */
+      All four clear 4.5:1 on `--color-card` and on every other surface they
+      are placed on. The old slate-500 role failed at 4.33:1 and is
+      deliberately gone rather than nudged. */
   --color-ink: #f1f5f9;
   --color-ink-muted: #94a3b8; /* 7.4:1  secondary text */
-    --color-ink-dim: #8593a8; /* 6.1:1  tertiary, labels */
-    /* The floor, never smaller than 10px. This was #76869c on the strength of
-       5.1:1 against --color-card, which is true and irrelevant: it is used on
-       --color-raised and --color-active, where it measured 4.30 and 4.05 and
-       failed AA. #8292a8 clears 4.5:1 on every surface it is actually placed
-       on, including the new --color-overlay. */
-    --color-ink-faint: #8292a8;
+  --color-ink-dim: #8593a8; /* 6.1:1  tertiary, labels */
+  /* The floor, never smaller than 10px. This was #76869c on the strength of
+     5.1:1 against --color-card, which is true and irrelevant: it is used on
+     --color-raised and --color-active, where it measured 4.30 and 4.05 and
+     failed AA. #8292a8 clears 4.5:1 on every surface it is actually placed
+     on, including the new --color-overlay. */
+  --color-ink-faint: #8292a8;
 
   /* --- Signal: corroborated, verified, sealed ------------------------- */
   --color-signal: #22c55e;
@@ -94,6 +109,52 @@
   --color-overlay: #1c2433;
   --color-overlay-line: #2b3648;
 
+  /* --- Graph node types ------------------------------------------------
+     The six entity types in the knowledge graph, and the one place AETHER
+     uses a categorical palette. Until now these six hues had no token home
+     at all: they were literals in KnowledgeGraphView.tsx's colour map, in its
+     seven demo node fixtures, and again in lib/api.ts's STIX fixture, so the
+     same six colours were maintained in three places and none of them could
+     follow a theme.
+
+     They are laid out as three complementary pairs on a 0/60/120 and
+     180/240/300 degree wheel, so every entity type has an exact opposite and
+     a relationship drawn between two of them always reads as a designed
+     contrast rather than an arbitrary pair:
+
+         threat-actor  red       <->  ipv4      cyan
+         wallet        amber     <->  hash      blue
+         pgp           green     <->  darknet   magenta
+
+     Cyan is deliberately one of the six: it is also --color-info, the accent
+     the whole product is built on, and a graph that contradicted its own
+     interface would be harder to read, not easier. All six clear 3:1 as
+     non-text on both the card and the chart well. */
+  --color-node-actor: #f87171;
+  --color-node-ipv4: #38bdf8;
+  --color-node-wallet: #fbbf24;
+  --color-node-pgp: #4ade80;
+  --color-node-hash: #60a5fa;
+  --color-node-darknet: #e879f9;
+
+  /* --- Link confidence --------------------------------------------------
+     The single most consequential colour pair in the product, and the one the
+     deck is built around. A link in the evidence graph is either something
+     that was computed deterministically -- a matching hash, a shared key, a
+     reused certificate -- or it is an inference drawn from a probabilistic
+     model. Those two must never look alike, because a reviewer who cannot
+     tell them apart will read a guess as a fact.
+
+     They were cyan and rose, which is a tint relationship, not a
+     complementary one: two neighbours in the same corner of the wheel. They
+     are now cyan and orange, 180 degrees apart, so the two kinds of link sit
+     at opposite ends of the spectrum and the distinction survives being
+     printed in greyscale-adjacent projection, colour-blindness and a bad
+     projector. The two also carry different widths, so the distinction is
+     never carried by hue alone. */
+  --color-link-confirmed: #38bdf8;
+  --color-link-guess: #fb923c;
+
   /* --- Type scale ------------------------------------------------------
      Four steps and two weights, and nothing else. Before this the interface
      ran 8/9/10/11/12px against six font weights, which is 24 combinations
@@ -114,6 +175,107 @@
 
   --font-sans: var(--font-jakarta), -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   --font-mono: var(--font-jetbrains), ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+}
+
+/* ==========================================================================
+   Light theme
+   --------------------------------------------------------------------------
+   A counterpart, not an inversion. The dark palette is a cold near-black, so
+   the light palette is a cold off-white carrying the same blue cast rather
+   than a neutral #fff page with grey cards. The seven-step surface ramp is
+   kept intact and simply re-seated: the page becomes the light plane, the
+   card becomes white, and the chart well becomes the darkest step.
+
+   Two things invert rather than translate, and both are deliberate:
+
+     --color-overlay is LIGHTER than --color-raised in dark (#1c2433 vs
+     #1a2230) because it occludes. On a light page that trick reverses: white
+     on a grey canvas is already the highest plane, so the popover has to earn
+     its separation from the border instead. overlay-line is pushed to
+     #8b9aae, a full weight heavier than any other hairline, precisely
+     because it is the only thing separating the popover from the card.
+
+     The `-ink` suffix means "the readable variant of this hue on the current
+     theme's surface", not "a lighter tint". So signal-ink goes from #4ade80
+     on dark to #15803d on light, and info-ink from #7dd3fc to #075985. The
+     names stay stable; the direction of the adjustment flips.
+
+   Selector is :root[data-theme] rather than [data-theme] so it outranks the
+   :root block Tailwind emits from @theme on specificity alone, and does not
+   depend on winning a source-order tie.
+   ========================================================================== */
+:root[data-theme="light"] {
+  /* Surfaces. Cold off-white, same cast as the dark ramp. */
+  --color-canvas: #eef1f6;
+  --color-sunken: #e3e9f1; /* chart canvas, the darkest step on light */
+  --color-input: #f5f7fa;
+  --color-card: #ffffff;
+  --color-surface: #f7f9fc;
+  --color-raised: #ffffff;
+  --color-active: #dbe3ee;
+  --color-overlay: #ffffff;
+
+  /* Lines. Hairline, as in dark. */
+  --color-line-faint: #e6ebf3;
+  --color-line: #d8e0eb;
+  --color-line-strong: #b3c0d1;
+  --color-line-active: #7c8b9f;
+  --color-overlay-line: #8b9aae;
+
+  /* Ink. Every role clears 4.5:1 on all seven surfaces; the tightest is
+     ink-faint on --color-active at 4.55:1. */
+  --color-ink: #0d1524;
+  --color-ink-muted: #3f4d66;
+  --color-ink-dim: #4e5c73;
+  --color-ink-faint: #55647c;
+
+  /* Signal: corroborated, verified, sealed */
+  --color-signal: #16a34a;
+  --color-signal-ink: #15803d; /* 4.67:1 on signal-surface */
+  --color-signal-surface: #edfaf1;
+  --color-signal-line: #9fe3bb;
+  --color-signal-line-soft: #cdefd9;
+
+  /* Alert: contradiction, tamper, denial */
+  --color-alert: #dc2626;
+  --color-alert-ink: #b91c1c; /* 5.82:1 on alert-surface */
+  --color-alert-surface: #fdf0f0;
+  --color-alert-line: #f7bfbf;
+
+  /* Info: live telemetry, active case */
+  --color-info: #0369a1;
+  --color-info-ink: #075985; /* 6.94:1 on info-surface */
+  --color-info-surface: #eff6fc;
+  --color-info-raised: #dceefb;
+  --color-info-hover: #c3e2f7;
+  --color-info-line: #7cc4ea;
+  --color-info-line-soft: #b6ddf4;
+  --color-info-line-strong: #5aaede;
+
+  /* Warn: partial, degraded, unavailable */
+  --color-warn: #b45309;
+  --color-warn-ink: #92400e; /* 6.60:1 on warn-surface */
+  --color-warn-surface: #fdf6e9;
+  --color-warn-line: #f0cd8f;
+
+  /* Focus. One ring colour for the whole product, in both themes, so it never
+     reads as a state change in the content itself. 5.93:1 on card. */
+  --color-focus: #0369a1;
+
+  /* The same three complementary pairs, stepped down for a white page. The
+     dark set is too light to read on white -- #fbbf24 on #ffffff is 1.7:1 --
+     so each hue is replaced by its own dark sibling rather than merely
+     desaturated, which would have collapsed all six toward the same grey. */
+  --color-node-actor: #dc2626; /*   0 deg */
+  --color-node-ipv4: #0e7490; /* 193 deg, complement of actor */
+  --color-node-wallet: #a16207; /*  36 deg */
+  --color-node-hash: #1d4ed8; /* 224 deg, complement of wallet */
+  --color-node-pgp: #15803d; /* 142 deg */
+  --color-node-darknet: #a21caf; /* 295 deg, complement of pgp */
+
+  /* Link confidence, same complementary pair stepped down for white. */
+  --color-link-confirmed: #0369a1;
+  --color-link-guess: #c2410c;
 }
 
 @layer base {

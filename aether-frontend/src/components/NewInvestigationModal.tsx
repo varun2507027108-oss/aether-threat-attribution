@@ -445,12 +445,12 @@ export const NewInvestigationModal: React.FC<NewInvestigationModalProps> = ({
         {/* Header */}
         <div className="p-5 border-b border-line flex items-center justify-between bg-surface">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 bg-info-surface border border-line-active text-white flex items-center justify-center text-base">
+            <div className="w-10 h-10 bg-info-surface border border-line-active text-ink flex items-center justify-center text-base">
               <i className="fa-solid fa-crosshairs text-info-ink"></i>
             </div>
             <div>
               <div className="flex items-center gap-2">
-                <h2 className="text-lg font-extrabold text-white tracking-tight font-mono">
+                <h2 className="text-lg font-extrabold text-ink tracking-tight font-mono">
                   NEW INVESTIGATION
                 </h2>
                 <span className="text-[10px] font-mono px-2 py-0.5 bg-info-surface text-info-ink border border-info-line">
@@ -465,7 +465,7 @@ export const NewInvestigationModal: React.FC<NewInvestigationModalProps> = ({
           {!isAnalyzing && (
             <button
               onClick={onClose}
-              className="w-8 h-8 bg-info-surface text-ink-muted hover:text-white border border-line-strong flex items-center justify-center transition"
+              className="w-8 h-8 bg-info-surface text-ink-muted hover:text-ink border border-line-strong flex items-center justify-center transition"
             >
               <i className="fa-solid fa-xmark text-xs"></i>
             </button>
@@ -480,7 +480,7 @@ export const NewInvestigationModal: React.FC<NewInvestigationModalProps> = ({
                 <span className="w-2 h-2 bg-info"></span>
                 PARALLEL FORENSIC PIPELINE STREAMING
               </div>
-              <h3 className="text-lg font-bold text-white font-mono">{caseName}</h3>
+              <h3 className="text-lg font-bold text-ink font-mono">{caseName}</h3>
               <p className="text-xs text-ink-muted font-mono">Target: {target}</p>
             </div>
 
@@ -502,11 +502,11 @@ export const NewInvestigationModal: React.FC<NewInvestigationModalProps> = ({
                     key={mod.key}
                     className={`p-2.5 flex items-center justify-between border transition ${
                       isRunning
-                        ? "bg-raised border-info-line-strong text-white"
+                        ? "bg-raised border-info-line-strong text-ink"
                         : isDone
                         ? "bg-card border-line text-ink"
                         : isFailed
-                        ? "bg-card border-rose-900/60 text-rose-300"
+                        ? "bg-card border-alert-line text-alert-ink"
                         : isSkipped
                         ? "bg-card border-line-faint text-ink-faint"
                         : "bg-transparent border-transparent text-ink-faint opacity-60"
@@ -519,7 +519,7 @@ export const NewInvestigationModal: React.FC<NewInvestigationModalProps> = ({
                         ) : isRunning ? (
                           <i className="fa-solid fa-gear fa-spin text-info-ink"></i>
                         ) : isFailed ? (
-                          <i className="fa-solid fa-triangle-exclamation text-rose-400"></i>
+                          <i className="fa-solid fa-triangle-exclamation text-alert-ink"></i>
                         ) : isSkipped ? (
                           <i className="fa-solid fa-forward-step text-ink-faint"></i>
                         ) : (
@@ -535,7 +535,7 @@ export const NewInvestigationModal: React.FC<NewInvestigationModalProps> = ({
                             </span>
                           )}
                           {isFailed && (
-                            <span className="text-[10px] px-1.5 py-0.2 bg-rose-900/60 text-rose-300 border border-rose-700">
+                            <span className="text-[10px] px-1.5 py-0.2 bg-alert-surface text-alert-ink border border-alert-line">
                               DEGRADED
                             </span>
                           )}
@@ -561,7 +561,7 @@ export const NewInvestigationModal: React.FC<NewInvestigationModalProps> = ({
                             : isRunning
                             ? "text-info-ink"
                             : isFailed
-                            ? "text-rose-400"
+                            ? "text-alert-ink"
                             : isSkipped
                             ? "text-ink-faint"
                             : "text-ink-faint"
@@ -609,7 +609,7 @@ export const NewInvestigationModal: React.FC<NewInvestigationModalProps> = ({
                       </span>
                       <i className="fa-solid fa-arrow-right text-[10px] text-ink-faint group-hover:text-info-ink transition"></i>
                     </div>
-                    <div className="font-bold text-xs text-white mt-1.5 truncate">{p.name}</div>
+                    <div className="font-bold text-xs text-ink mt-1.5 truncate">{p.name}</div>
                     <div className="text-[10px] text-ink-muted font-mono truncate mt-0.5">
                       {p.target}
                     </div>
@@ -633,7 +633,7 @@ export const NewInvestigationModal: React.FC<NewInvestigationModalProps> = ({
                     value={target}
                     onChange={(e) => setTarget(e.target.value)}
                     placeholder="Domain, IPv4, or .onion URL (e.g. http://p4lx7e22kq6dreadmarket.onion)"
-                    className="w-full bg-transparent px-3 py-2 text-xs font-mono text-white placeholder:text-ink-faint"
+                    className="w-full bg-transparent px-3 py-2 text-xs font-mono text-ink placeholder:text-ink-faint"
                     required
                   />
                   <select
@@ -660,7 +660,7 @@ export const NewInvestigationModal: React.FC<NewInvestigationModalProps> = ({
                     type="text"
                     value={caseName}
                     onChange={(e) => setCaseName(e.target.value)}
-                    className="w-full bg-sunken border border-line-strong px-3 py-2 text-xs font-mono text-white focus:border-info-line"
+                    className="w-full bg-sunken border border-line-strong px-3 py-2 text-xs font-mono text-ink focus:border-info-line"
                   />
                 </div>
                 <div>
@@ -682,7 +682,7 @@ export const NewInvestigationModal: React.FC<NewInvestigationModalProps> = ({
                     type="text"
                     value={actorName}
                     onChange={(e) => setActorName(e.target.value)}
-                    className="w-full bg-sunken border border-line-strong px-3 py-2 text-xs font-mono text-white focus:border-info-line"
+                    className="w-full bg-sunken border border-line-strong px-3 py-2 text-xs font-mono text-ink focus:border-info-line"
                   />
                 </div>
               </div>
@@ -774,7 +774,7 @@ export const NewInvestigationModal: React.FC<NewInvestigationModalProps> = ({
                       value={knownPgp}
                       onChange={(e) => setKnownPgp(e.target.value)}
                       placeholder="4D9E 27BC 918A 4F02 C731 09AE 2C5B 88E1 40FA 7D3C"
-                      className="w-full bg-card border border-line-strong px-3 py-1.5 text-xs text-white"
+                      className="w-full bg-card border border-line-strong px-3 py-1.5 text-xs text-ink"
                     />
                   </div>
 
@@ -787,7 +787,7 @@ export const NewInvestigationModal: React.FC<NewInvestigationModalProps> = ({
                       value={knownBtc}
                       onChange={(e) => setKnownBtc(e.target.value)}
                       placeholder="bc1q… or 1A1zP1… (a real address, if you have one)"
-                      className="w-full bg-card border border-line-strong px-3 py-1.5 text-xs text-white"
+                      className="w-full bg-card border border-line-strong px-3 py-1.5 text-xs text-ink"
                     />
                   </div>
 
@@ -799,7 +799,7 @@ export const NewInvestigationModal: React.FC<NewInvestigationModalProps> = ({
                       value={textSample}
                       onChange={(e) => setTextSample(e.target.value)}
                       rows={2}
-                      className="w-full bg-card border border-line-strong p-2 text-xs text-white resize-none"
+                      className="w-full bg-card border border-line-strong p-2 text-xs text-ink resize-none"
                     />
                   </div>
                 </div>

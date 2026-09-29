@@ -108,17 +108,17 @@ export const DossierModal: React.FC<DossierModalProps> = ({
     <Modal isOpen={isOpen} onClose={onClose} title="Target suspect dossier" size="md">
         <div className="flex justify-between items-center border-b border-line pb-4">
           <div className="flex items-center gap-2.5">
-            <div className="w-9 h-9 bg-active text-white flex items-center justify-center text-sm border border-line-active">
+            <div className="w-9 h-9 bg-active text-ink flex items-center justify-center text-sm border border-line-active">
               <i className="fa-solid fa-shield-halved"></i>
             </div>
             <div>
-              <h3 className="text-base font-bold text-white">FORM-DEANON: Forensic Dossier</h3>
+              <h3 className="text-base font-bold text-ink">FORM-DEANON: Forensic Dossier</h3>
               <p className="text-xs text-ink-muted font-mono">Dossier ID: NTRO-26151-{targetEvidenceId}</p>
             </div>
           </div>
           <button
             onClick={onClose}
-            className="w-8 h-8 bg-info-surface text-ink-muted flex items-center justify-center hover:bg-active hover:text-white border border-line-strong transition"
+            className="w-8 h-8 bg-info-surface text-ink-muted flex items-center justify-center hover:bg-active hover:text-ink border border-line-strong transition"
             title="Close"
           >
             <i className="fa-solid fa-xmark text-xs"></i>
@@ -129,7 +129,7 @@ export const DossierModal: React.FC<DossierModalProps> = ({
           <div className="bg-input p-3.5 border border-line space-y-2 font-mono text-[11px]">
             <div className="flex justify-between">
               <span className="text-ink-muted">Target / Handle:</span>{" "}
-              <span className="font-bold text-white">
+              <span className="font-bold text-ink">
                 {caseData?.actor_name || caseData?.target_url || "ZeroTrace / ShadowByte"}
               </span>
             </div>
@@ -157,7 +157,7 @@ export const DossierModal: React.FC<DossierModalProps> = ({
             </div>
             <div className="flex justify-between">
               <span className="text-ink-muted">Confidence Score:</span>{" "}
-              <span className="font-bold text-white">
+              <span className="font-bold text-ink">
                 {attribution
                   ? `${attribution.confidence_score}% (${attribution.confidence_tier})`
                   : "94.8% (Court Verifiable)"}
@@ -169,7 +169,7 @@ export const DossierModal: React.FC<DossierModalProps> = ({
             <i className="fa-solid fa-circle-check text-base shrink-0 text-ink-muted"></i>
             <p className="text-[11px] leading-tight">
               SHA-256 Digital Seal:{" "}
-              <span className="font-mono text-white">
+              <span className="font-mono text-ink">
                 {investigation?.custody_verification?.seal
                   ? `${investigation.custody_verification.seal.substring(0, 24)}...`
                   : "e3b0c44298fc1c149afbf4c8996..."}

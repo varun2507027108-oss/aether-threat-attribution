@@ -68,11 +68,11 @@ export const EngineConfigModal: React.FC<EngineConfigModalProps> = ({
         {/* Modal Header */}
         <div className="flex justify-between items-center border-b border-line pb-3">
           <div className="flex items-center gap-2.5">
-            <div className="w-8 h-8 bg-active text-white flex items-center justify-center text-xs border border-line-active">
+            <div className="w-8 h-8 bg-active text-ink flex items-center justify-center text-xs border border-line-active">
               <i className="fa-solid fa-sliders"></i>
             </div>
             <div>
-              <h3 className="text-base font-bold text-white">Engine Configuration</h3>
+              <h3 className="text-base font-bold text-ink">Engine Configuration</h3>
               <p className="text-[11px] text-ink-muted font-mono">Gateway &amp; Recon Proxy Settings</p>
             </div>
           </div>
@@ -158,7 +158,7 @@ export const EngineConfigModal: React.FC<EngineConfigModalProps> = ({
               className="px-3 py-1.5 bg-raised hover:bg-active text-info-ink border border-line-active text-[11px] font-bold transition flex items-center gap-1.5"
             >
               {pinging ? (
-                <span className="inline-block w-3 h-3 border-2 border-white border-t-transparent animate-spin"></span>
+                <span className="inline-block w-3 h-3 border-2 border-ink border-t-transparent animate-spin"></span>
               ) : (
                 <i className="fa-solid fa-satellite-dish text-[10px]"></i>
               )}
@@ -170,7 +170,7 @@ export const EngineConfigModal: React.FC<EngineConfigModalProps> = ({
           <div className="flex gap-2 pt-2">
             <button
               type="submit"
-              className="w-full min-h-11 py-2.5 bg-active hover:bg-info-hover text-white font-bold transition border border-line-active flex items-center justify-center gap-2"
+              className="w-full min-h-11 py-2.5 bg-active hover:bg-info-hover text-ink font-bold transition border border-line-active flex items-center justify-center gap-2"
             >
               <i className="fa-solid fa-circle-info text-xs" aria-hidden="true"></i>{" "}
               Explain these values
