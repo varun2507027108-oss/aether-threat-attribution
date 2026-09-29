@@ -22,7 +22,7 @@ interface DemoTagProps {
  */
 export const DemoTag: React.FC<DemoTagProps> = ({ requires, className = "" }) => (
   <span
-    className={`inline-flex items-center gap-1 align-middle text-[9px] font-bold uppercase tracking-wider text-warn-ink bg-warn-surface border border-warn-line px-1.5 py-px ${className}`}
+    className={`inline-flex items-center gap-1 align-middle text-[10px] font-bold uppercase tracking-wider text-warn-ink bg-warn-surface border border-warn-line px-1.5 py-px ${className}`}
     title={
       requires
         ? `Demonstration value, not live evidence. Requires ${requires} to become real.`

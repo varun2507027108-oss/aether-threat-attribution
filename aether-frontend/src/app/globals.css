@@ -42,8 +42,13 @@
      at 4.33:1 and is deliberately gone rather than nudged. */
   --color-ink: #f1f5f9;
   --color-ink-muted: #94a3b8; /* 7.4:1  secondary text */
-  --color-ink-dim: #8593a8; /* 6.1:1  tertiary, labels */
-  --color-ink-faint: #76869c; /* 5.1:1  the floor, never smaller than 10px */
+    --color-ink-dim: #8593a8; /* 6.1:1  tertiary, labels */
+    /* The floor, never smaller than 10px. This was #76869c on the strength of
+       5.1:1 against --color-card, which is true and irrelevant: it is used on
+       --color-raised and --color-active, where it measured 4.30 and 4.05 and
+       failed AA. #8292a8 clears 4.5:1 on every surface it is actually placed
+       on, including the new --color-overlay. */
+    --color-ink-faint: #8292a8;
 
   /* --- Signal: corroborated, verified, sealed ------------------------- */
   --color-signal: #22c55e;
@@ -78,6 +83,34 @@
      One ring colour for the entire product, cyan so it never reads as a
      state change in the content itself. */
   --color-focus: #7dd3fc;
+
+  /* --- Overlay --------------------------------------------------------
+     Popovers that must sit ABOVE the surfaces they cover: the case
+     switcher and the nav tooltips. Both referenced `bg-overlay` while no
+     such token existed, which resolved to `transparent` and left the case
+     list rendering straight over the provenance banner, readable through
+     it. This is the one plane that is deliberately lighter than --raised,
+     because it occludes and needs to read as a separate stratum. */
+  --color-overlay: #1c2433;
+  --color-overlay-line: #2b3648;
+
+  /* --- Type scale ------------------------------------------------------
+     Four steps and two weights, and nothing else. Before this the interface
+     ran 8/9/10/11/12px against six font weights, which is 24 combinations
+     for a screen that has four kinds of text. The confidence figure alone
+     was set at 24/700, 24/900, 30/800 and 11/700. Colour, radius and border
+     were all disciplined; type was simply undecided, and that reads as
+     generic far more than the austerity does.
+
+     micro  - the floor. 10px, never smaller, tabular figures.
+     label  - field labels, axis ticks, table headers. The workhorse.
+     body   - running prose and table cells.
+     title  - card and section headings. The only step that may be bold. */
+  --text-micro: 10px;
+  --text-label: 12px;
+  --text-body: 13px;
+  --text-title: 16px;
+  --text-display: 30px; /* the single headline figure on a card */
 
   --font-sans: var(--font-jakarta), -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   --font-mono: var(--font-jetbrains), ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;

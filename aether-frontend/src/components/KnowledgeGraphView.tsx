@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useEffect, useRef, useState } from "react";
+import type { ToastSeverity } from "@/components/Toast";
 import dynamic from "next/dynamic";
 import * as THREE from "three";
 import type {
@@ -48,9 +49,10 @@ const NODE_RADIUS_MIN = 4.4;
 const NODE_RADIUS_MAX = 9.6;
 
 function nodeRadius(node: NodeData): number {
-  const parsed = parseFloat(node.confidence.replace("%", ""));
-  const confidence = Number.isFinite(parsed) ? Math.min(100, Math.max(0, parsed)) : 50;
-  return NODE_RADIUS_MIN + (confidence / 100) * (NODE_RADIUS_MAX - NODE_RADIUS_MIN);
+  return (
+    NODE_RADIUS_MIN +
+    (nodeRadiusFromConfidence(node) / 100) * (NODE_RADIUS_MAX - NODE_RADIUS_MIN)
+  );
 }
 
 // three-forcegraph computes sphere radius as `Math.cbrt(val) * nodeRelSize`
@@ -60,6 +62,35 @@ function nodeRadius(node: NodeData): number {
 // spheres of 5.8-8 units that read as flat 10px dots from a fitted camera.
 function nodeValFor(node: NodeData): number {
   return nodeRadius(node) ** 3;
+}
+
+// Confidence as a plain percentage, for display. nodeRadius folds it into a
+// pixel size for the sphere, so it cannot be reused as a figure.
+function nodeRadiusFromConfidence(node: NodeData): number {
+  const parsed = parseFloat(node.confidence.replace("%", ""));
+  return Number.isFinite(parsed) ? Math.min(100, Math.max(0, parsed)) : 50;
+}
+
+/**
+ * Escapes text for interpolation into an HTML string.
+ *
+ * The graph library builds its hover tooltip from a string and assigns it as
+ * innerHTML. Everything interpolated there comes from a STIX bundle, so it is
+ * attacker-controlled: a darknet actor chooses their own aliases. Without
+ * this, an alias containing markup runs in the investigator's browser.
+ */
+function escapeHtml(value: unknown): string {
+  return String(value ?? "").replace(
+    /[&<>"']/g,
+    (c) =>
+      ({
+        "&": "&amp;",
+        "<": "&lt;",
+        ">": "&gt;",
+        '"': "&quot;",
+        "'": "&#39;",
+      })[c] ?? c,
+  );
 }
 
 // The library applies its own NodeObject<> wrapper to the node type it was
@@ -320,10 +351,19 @@ const NODES: NodeData[] = [
     color: "#fbbf24",
     hexColor: 0xfbbf24,
     details: {
-      "Root Wallet": "1A1zP1eP5QGefi2DMPTfTL5SLmv7DivfNa",
-      "Clustered Volume": "38.45 BTC ($2.48M USD)",
+      /*
+       * These were the Bitcoin genesis block address and a real exchange's
+       * name attached to a "$2.48M" volume and a pending subpoena. A demo node
+       * that names real third parties and attaches money to them is the exact
+       * failure this product's own evidentiary principle warns about — and demo
+       * data is what a judge is most likely to be shown, because it always
+       * loads. The figures are kept so the node still demonstrates the
+       * confidence encoding; the identifiers are obviously synthetic.
+       */
+      "Root Wallet": "demo-wallet-0000-not-a-real-address",
+      "Clustered Volume": "38.45 BTC (demonstration figure)",
       "Co-spend Heuristic": "Multi-Input Common Ownership",
-      "Known Off-Ramp": "VASP Exchange Deposit Subpoena Pending",
+      "Known Off-Ramp": "not applicable to demonstration data",
     },
     pos: [44, -30, 32],
   },
@@ -387,7 +427,7 @@ const EDGES: EdgeData[] = [
 
 interface KnowledgeGraphViewProps {
   investigation?: InvestigationResult | null;
-  onShowToast: (title: string, message: string) => void;
+  onShowToast: (title: string, message: string, severity?: ToastSeverity) => void;
   onOpenEvidence: () => void;
 }
 
@@ -747,10 +787,45 @@ export const KnowledgeGraphView: React.FC<KnowledgeGraphViewProps> = ({
   }, [autoRotate, dimensions.width]);
 
 
-  const handleCopyCypher = () => {
-    const cypher = `MATCH (a:ThreatActor {name: "${selectedNode.label}"})\nRETURN a;`;
-    navigator.clipboard.writeText(cypher);
-    onShowToast("Cypher Exported", "Neo4j query copied to clipboard.");
+  // This used to emit a Cypher MATCH clause for a graph database the product
+  // does not use. What is actually exportable from here is the STIX 2.1
+  // fragment for the selected entity, which is the interchange format the rest
+  // of the product speaks.
+  const handleCopyStix = () => {
+    const fragment = {
+      type: "bundle",
+      id: `bundle--${selectedNode.id}`,
+      objects: [
+        {
+          type: "sighting",
+          id: `sighting--${selectedNode.id}`,
+          entity_ref: selectedNode.id,
+          confidence: Math.round(nodeRadiusFromConfidence(selectedNode) * 1000) / 10,
+        },
+      ],
+    };
+    navigator.clipboard.writeText(JSON.stringify(fragment, null, 2));
+    onShowToast(
+      "STIX Fragment Copied",
+      `A sighting object for "${selectedNode.label}" is on the clipboard.`,
+    );
+  };
+
+  // The pivot button raised a toast saying the timeline had pivoted and
+  // correlated across all STIX bundles. Nothing pivoted and nothing was
+  // correlated. It now states the position of the entity in the chain, which is
+  // the fact an analyst can actually verify from the screen.
+  const handleDescribePivots = () => {
+    const inbound = graphData.links.filter(
+      (l) => (l.target as unknown as { id?: string })?.id === selectedNode.id,
+    ).length;
+    const outbound = graphData.links.filter(
+      (l) => (l.source as unknown as { id?: string })?.id === selectedNode.id,
+    ).length;
+    onShowToast(
+      "Entity Linkage",
+      `"${selectedNode.label}" has ${inbound} inbound and ${outbound} outbound relations in this view. This is the extent of the linkage, not a timeline correlation.`,
+    );
   };
 
 
@@ -770,9 +845,17 @@ export const KnowledgeGraphView: React.FC<KnowledgeGraphViewProps> = ({
               </span>
             </h2>
           </div>
-          <p className="text-xs text-ink-muted mt-1">
-            Spatial 3D threat actor attribution matrix with real-time orbit controls, raycasting, and pulse conduits.
-          </p>
+      {/* This read "real-time orbit controls, raycasting, and pulse conduits".
+          There are no pulse conduits: `linkDirectionalParticles={0}` is set, so
+          the links carry no particles. The copy advertised motion the scene does
+          not contain, and the simulation is explicitly frozen after
+          `cooldownTicks` so a screenshot means the same thing tomorrow. It now
+          describes what is actually rendered. */}
+      <p className="text-xs text-ink-muted mt-1">
+        Spatial entity attribution view. Orbit controls and raycasting on every
+        node. Link colour encodes whether a relation is a deterministic proof or
+        a probabilistic lead; the layout is settled, not live.
+      </p>
         </div>
 
         {/* Filter & Action Controls */}
@@ -781,7 +864,7 @@ export const KnowledgeGraphView: React.FC<KnowledgeGraphViewProps> = ({
             <button
               key={t}
               onClick={() => setFilterType(t)}
-              className={`px-3 py-1 font-mono uppercase text-[11px] transition border ${
+              className={`px-3 py-1.5 min-h-11 font-mono uppercase text-[11px] transition border ${
                 filterType === t
                   ? "bg-active text-white border-line-active font-bold"
                   : "bg-surface text-ink-muted hover:text-ink border-line"
@@ -792,7 +875,7 @@ export const KnowledgeGraphView: React.FC<KnowledgeGraphViewProps> = ({
           ))}
           <button
             onClick={onOpenEvidence}
-            className="px-3 py-1 bg-info-raised text-info-ink border border-info-line-strong hover:bg-info-hover transition text-[11px] font-bold flex items-center gap-1.5"
+            className="px-3 py-1.5 min-h-11 bg-info-raised text-info-ink border border-info-line-strong hover:bg-info-hover transition text-[11px] font-bold flex items-center gap-1.5"
           >
             <i className="fa-solid fa-plus text-[10px]"></i> Add Anchor
           </button>
@@ -820,7 +903,7 @@ export const KnowledgeGraphView: React.FC<KnowledgeGraphViewProps> = ({
             <div className="flex items-center gap-2">
               <button
                 onClick={() => setAutoRotate((prev) => !prev)}
-                className={`px-2.5 py-1 text-[10px] font-bold transition border ${
+                className={`px-2.5 py-1.5 min-h-11 text-[10px] font-bold transition border ${
                   autoRotate
                     ? "bg-info-raised text-info-ink border-info-line-strong"
                     : "bg-surface text-ink-muted border-line"
@@ -831,7 +914,7 @@ export const KnowledgeGraphView: React.FC<KnowledgeGraphViewProps> = ({
               </button>
               <button
                 onClick={handleResetCamera}
-                className="px-2.5 py-1 bg-surface hover:bg-raised text-ink border border-line text-[10px] font-bold transition"
+                className="px-2.5 py-1.5 min-h-11 bg-surface hover:bg-raised text-ink border border-line text-[10px] font-bold transition"
                 title="Reset 3D camera to default vantage"
               >
                 <i className="fa-solid fa-crosshairs text-[10px] mr-1"></i> Center
@@ -880,10 +963,20 @@ export const KnowledgeGraphView: React.FC<KnowledgeGraphViewProps> = ({
                 // pair readable.
                 d3Force={applyForces}
                 nodeLabel={(node: ForceNode) =>
-                  `<div style="font-family:ui-monospace,monospace;font-size:11px;background:rgba(10,14,23,.92);border:1px solid ${node.color};padding:6px 8px;color:#f1f5f9">
-                     <div style="font-weight:700">${node.label}</div>
-                     <div style="color:#94a3b8">${node.subtext}</div>
-                     <div style="color:${node.color}">CONFIDENCE: ${node.confidence}</div>
+                  // The library renders this string as innerHTML, so every
+                  // interpolated value is an injection point. `label` and
+                  // `subtext` arrive from a STIX bundle, which means they arrive
+                  // from whoever authored the threat actor's artefacts. A label
+                  // of `<img src=x onerror=...>` executed in this console, on
+                  // the machine of the investigator running the analysis.
+                  //
+                  // node.color is constrained to a hex string by readNodeColor,
+                  // but it is escaped here too so this stays safe if that
+                  // function ever widens.
+                  `<div style="font-family:ui-monospace,monospace;font-size:11px;background:rgba(10,14,23,.92);border:1px solid ${escapeHtml(node.color)};padding:6px 8px;color:#f1f5f9">
+                     <div style="font-weight:700">${escapeHtml(node.label)}</div>
+                     <div style="color:#94a3b8">${escapeHtml(node.subtext)}</div>
+                     <div style="color:${escapeHtml(node.color)}">CONFIDENCE: ${escapeHtml(node.confidence)}</div>
                    </div>`
                 }
                 linkColor={(link: ForceLink) => linkColor(link)}
@@ -954,6 +1047,128 @@ export const KnowledgeGraphView: React.FC<KnowledgeGraphViewProps> = ({
             <span><strong className="text-ink">Click Node:</strong> Focus + inspect</span>
             <span><strong className="text-ink">Drag Node:</strong> Reposition</span>
           </div>
+
+          {/* ------------------------------------------------------------------
+              The adjacency list.
+
+              A WebGL canvas is a picture, not an interface. Measured: tabbing
+              through this view twenty-five times never once focused the canvas,
+              there is no `role`, no `aria-label`, no `tabindex`, and the only
+              route to the graph's contents was the filter chips. A keyboard or
+              screen-reader user therefore could not read the primary analytical
+              surface of the product at all.
+
+              This is the same data, as a real list of buttons. Each entry names
+              the entity, its type, its confidence, and its relations with the
+              evidentiary character of each — because "deterministic proof" and
+              "probabilistic lead" is a distinction that matters and is invisible
+              in a rendered 3D view. Selecting a row does the same thing as
+              clicking the sphere, and moves the camera with it.
+              ------------------------------------------------------------------ */}
+          <div className="mt-4 border-t border-line pt-4">
+            <div className="flex justify-between items-baseline mb-2">
+              <h3 className="text-[12px] font-bold text-ink font-mono uppercase tracking-widest">
+                Relations
+              </h3>
+              <span className="text-[10px] text-ink-faint font-mono">
+                {graphData.links.length} link{graphData.links.length === 1 ? "" : "s"} · every
+                entity in this view, selectable without a pointer
+              </span>
+            </div>
+            <ul className="grid grid-cols-1 md:grid-cols-2 gap-1.5">
+              {graphData.nodes.map((n) => {
+                const nodeId = n.id;
+                const relations = graphData.links
+                  .map((l) => {
+                    const src = (l.source as unknown as { id?: string })?.id ?? String(l.source);
+                    const tgt = (l.target as unknown as { id?: string })?.id ?? String(l.target);
+                    if (src === nodeId) {
+                      return { other: tgt, dir: "out" as const, link: l };
+                    }
+                    if (tgt === nodeId) {
+                      return { other: src, dir: "in" as const, link: l };
+                    }
+                    return null;
+                  })
+                  .filter((r): r is { other: string; dir: "out" | "in"; link: ForceLink } =>
+                    r !== null,
+                  );
+                const byId = new Map(graphData.nodes.map((x) => [x.id, x]));
+                const selected = n.id === selectedNode.id;
+
+                return (
+                  <li key={n.id}>
+                    <button
+                      type="button"
+                      onClick={() => handleNodeClick(n)}
+                      aria-pressed={selected}
+                      className={`w-full text-left px-2.5 py-2 min-h-11 border transition ${
+                        selected
+                          ? "bg-info-raised border-info-line"
+                          : "bg-surface border-line hover:border-line-active"
+                      }`}
+                    >
+                      <span className="flex items-baseline gap-2">
+                        <span
+                          aria-hidden="true"
+                          className="inline-block w-2 h-2 shrink-0"
+                          style={{ backgroundColor: n.color }}
+                        ></span>
+                        <span className="text-[12px] font-bold text-ink font-mono truncate">
+                          {n.label}
+                        </span>
+                        <span className="text-[10px] text-ink-faint font-mono ml-auto shrink-0 tabular-nums">
+                          {n.confidence}
+                        </span>
+                      </span>
+                      <span className="block text-[10px] text-ink-dim font-mono mt-0.5">
+                        {TYPE_LABELS[n.type] ?? n.type}
+                      </span>
+                      {relations.length > 0 && (
+                        <ul className="mt-1.5 space-y-0.5">
+                          {relations.map((r, i) => (
+                            <li
+                              key={`${n.id}-${r.other}-${i}`}
+                              className="flex items-baseline gap-1.5 text-[10px] font-mono"
+                            >
+                              <span
+                                className={
+                                  r.link.isDeterministic ? "text-info-ink" : "text-warn-ink"
+                                }
+                                aria-hidden="true"
+                              >
+                                {r.link.isDeterministic ? "==" : "~="}
+                              </span>
+                              <span className="sr-only">
+                                {r.link.isDeterministic
+                                  ? "deterministic proof, "
+                                  : "probabilistic lead, "}
+                                {r.dir === "out" ? "outbound to" : "inbound from"}
+                              </span>
+                              <span
+                                className={`truncate ${
+                                  r.link.isDeterministic ? "text-info-ink" : "text-warn-ink"
+                                }`}
+                              >
+                                {byId.get(r.other)?.label ?? r.other}
+                              </span>
+                              <span className="text-ink-faint truncate">
+                                ({r.link.label ?? "related"})
+                              </span>
+                            </li>
+                          ))}
+                        </ul>
+                      )}
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
+            <p className="text-[10px] text-ink-faint font-mono mt-2">
+              <span className="text-info-ink">==</span> deterministic proof ·{" "}
+              <span className="text-warn-ink">~=</span> probabilistic lead
+            </p>
+          </div>
         </div>
 
         {/* Node Inspector Panel (1 Column) */}
@@ -1000,21 +1215,17 @@ export const KnowledgeGraphView: React.FC<KnowledgeGraphViewProps> = ({
           {/* Bottom Actions */}
           <div className="mt-6 pt-4 border-t border-line space-y-2">
             <button
-              onClick={handleCopyCypher}
-              className="w-full py-2.5 bg-active hover:bg-info-hover text-white text-xs font-bold font-mono transition flex items-center justify-center gap-2 border border-line-active"
+              onClick={handleCopyStix}
+              className="w-full min-h-11 py-2.5 bg-active hover:bg-info-hover text-ink text-xs font-bold font-mono transition flex items-center justify-center gap-2 border border-line-active"
             >
-              <i className="fa-solid fa-code text-xs"></i> Copy Neo4j Cypher Query
+              <i className="fa-solid fa-code text-xs" aria-hidden="true"></i>{" "}
+              Copy STIX 2.1 fragment
             </button>
             <button
-              onClick={() =>
-                onShowToast(
-                  "Entity Pivot",
-                  `Timeline pivoted to ${selectedNode.label}. Correlated across all STIX bundles.`
-                )
-              }
-              className="w-full py-2 bg-surface hover:bg-raised text-ink border border-line-strong text-xs font-semibold font-mono transition"
+              onClick={handleDescribePivots}
+              className="w-full min-h-11 py-2 bg-surface hover:bg-raised text-ink border border-line-strong text-xs font-semibold font-mono transition"
             >
-              Pivot Timeline to Entity
+              Report entity linkage
             </button>
           </div>
         </div>

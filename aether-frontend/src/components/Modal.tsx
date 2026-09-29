@@ -13,11 +13,15 @@ interface ModalProps {
   className?: string;
 }
 
+/*
+ * `xl` was `max-w-2xl`, NARROWER than `lg` at `max-w-3xl`, so a caller asking
+ * for a larger dialog got a smaller one. The scale is now monotonic.
+ */
 const SIZES: Record<NonNullable<ModalProps["size"]>, string> = {
   sm: "max-w-md",
   md: "max-w-lg",
   lg: "max-w-3xl",
-  xl: "max-w-2xl",
+  xl: "max-w-5xl",
 };
 
 const FOCUSABLE =
@@ -98,7 +102,12 @@ export const Modal: React.FC<ModalProps> = ({
 
   return (
     <div
-      className="fixed inset-0 bg-black/85 z-50 flex items-center justify-center p-4"
+      // The scrim was `bg-black/85`, a raw value in a product that tokenises
+      // every colour, and #000000 is the one value globals.css explicitly
+      // argues against: it causes halation on OLED, where bright text bleeds a
+      // halo into the surround. Scrimmed over the app's own canvas, the token
+      // is the correct near-black.
+      className="fixed inset-0 bg-canvas/85 z-50 flex items-center justify-center p-4"
       onMouseDown={(e) => {
         // Click the backdrop, not the panel, to dismiss.
         if (e.target === e.currentTarget) onClose();

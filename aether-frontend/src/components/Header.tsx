@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useEffect, useState } from "react";
+import type { ToastSeverity } from "@/components/Toast";
 import { CaseListItem, confirmExport, fetchWhoAmI, WhoAmIResult } from "@/lib/api";
 
 interface HeaderProps {
@@ -12,7 +13,7 @@ interface HeaderProps {
   onSelectCase?: (evidenceId: string) => void;
   onOpenNewInvestigation: () => void;
   onSearch: (query: string) => void;
-  onShowToast: (title: string, message: string) => void;
+  onShowToast: (title: string, message: string, severity?: ToastSeverity) => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -54,11 +55,14 @@ export const Header: React.FC<HeaderProps> = ({
       onShowToast(
         "Export Affirmed",
         `Dossier ${activeEvidenceId} released by ${result.data.operator} and sealed at custody seq ${result.data.seq}.`,
+        "success",
       );
     } else if (result.status === 403) {
-      onShowToast("Not Permitted", result.detail);
+      onShowToast("Not Permitted", result.detail, "warning");
     } else {
-      onShowToast("Confirmation Failed", result.detail);
+      // The affirmation is the gate on a court-bound artefact, so a failure has
+      // to persist and interrupt rather than expire after 4.5 seconds.
+      onShowToast("Confirmation Failed", result.detail, "critical");
     }
   };
 
@@ -139,10 +143,16 @@ export const Header: React.FC<HeaderProps> = ({
               </button>
 
               {caseMenuOpen && (
+                /* `bg-overlay` was referenced here and in Sidebar.tsx while no
+                   such token existed in @theme, so it resolved to `transparent`
+                   and the case list rendered directly over the provenance
+                   banner below it — the analyst could read the banner through
+                   the menu. --color-overlay now exists and is defined in
+                   globals.css. */
                 <div
                   role="menu"
                   aria-label="Recent investigations"
-                  className="absolute left-0 mt-1 w-72 bg-overlay border border-line-strong shadow-2xl z-50 font-mono text-xs"
+                  className="absolute left-0 mt-1 w-72 bg-overlay border border-overlay-line z-50 font-mono text-xs"
                 >
                   <div className="p-2 border-b border-line text-[10px] uppercase font-bold text-ink-dim flex justify-between">
                     <span>Recent investigations</span>
@@ -249,8 +259,20 @@ export const Header: React.FC<HeaderProps> = ({
         </div>
       </div>
 
-      {/* Primary action & search */}
-      <div className="flex items-center gap-2 w-full lg:w-auto flex-nowrap">
+      {/* Primary action & search.
+
+          This row was `flex-nowrap` with four `shrink-0` children, so it could
+          neither wrap nor compress. At 390px the identity chip alone measured
+          128px and started at x=369, which put 71px of it outside the viewport
+          with no scrolling ancestor anywhere in the chain: the whole page
+          scrolled sideways (497px of content in a 390px viewport) on every view.
+          The comment in page.tsx claiming the phone overflow had been fixed was
+          describing a different element and a previous measurement.
+
+          `flex-wrap` plus `min-w-0` lets the row break instead of pushing the
+          document wide, and the identity chip — the only item that can shrink
+          without losing meaning — is allowed to. */}
+      <div className="flex flex-wrap items-center gap-2 w-full lg:w-auto lg:flex-nowrap min-w-0">
         {/*
           This was the only gradient and the only glow in the product, on the
           primary action, in an interface that is otherwise flat steel with
@@ -271,7 +293,7 @@ export const Header: React.FC<HeaderProps> = ({
         <form
           onSubmit={handleSearchSubmit}
           role="search"
-          className="flex items-center bg-card pl-3 pr-1 py-1 border border-line w-full sm:w-56 xl:w-72 focus-within:border-info transition"
+          className="flex items-center bg-card pl-3 pr-1 py-1 border border-line w-full min-w-0 sm:w-56 xl:w-72 focus-within:border-info transition"
         >
           <label htmlFor="aether-target-search" className="sr-only">
             Search by onion address, PGP fingerprint, or Bitcoin wallet
@@ -287,7 +309,7 @@ export const Header: React.FC<HeaderProps> = ({
           <button
             type="submit"
             aria-label="Run recon probe"
-            className="w-9 h-9 bg-active hover:bg-info-hover text-ink flex items-center justify-center transition shrink-0 border border-line-strong"
+            className="w-11 h-11 min-h-11 bg-active hover:bg-info-hover text-ink flex items-center justify-center transition shrink-0 border border-line-strong"
           >
             <i className="fa-solid fa-magnifying-glass text-xs" aria-hidden="true"></i>
           </button>
@@ -330,8 +352,12 @@ export const Header: React.FC<HeaderProps> = ({
         </button>
 
         {identity ? (
+          /* `shrink-0` removed: this chip is the only item in the row whose
+             content can be abbreviated without losing information the analyst
+             needs, so it is the one that gives way when space is tight. The role
+             word is what matters; the padding and the icon are not. */
           <span
-            className={`h-11 px-3 border flex items-center gap-2 text-[11px] font-mono font-bold shrink-0 ${
+            className={`h-11 px-3 border flex items-center gap-2 text-[11px] font-mono font-bold min-w-0 ${
               identity.role === "investigator"
                 ? "bg-signal-surface text-signal-ink border-signal-line"
                 : "bg-warn-surface text-warn-ink border-warn-line"

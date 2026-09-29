@@ -129,16 +129,30 @@ export const BentoGrid: React.FC<BentoGridProps> = ({
    * was being rebuilt 24 times per sweep of the chart. The geometry depends
    * only on the dataset and the measured width.
    */
-  const { linePath, areaPath, points, peakPoint, minPoint, hasSeries } = useMemo(() => {
+  const { linePath, areaPath, points, peakPoint, minPoint, hasSeries, axisTop } =
+    useMemo(() => {
     const dataset = activeFilter === "circadian" ? diurnalHourly : monthlyHourly;
     const padL = 34;
     const padR = 14;
     const chartW = Math.max(plotWidth - padL - padR, 1);
-    const maxVal = Math.max(...dataset, 1);
+
+    /*
+     * The plotted ceiling is `axisTop`, a rounded value rather than the raw
+     * data maximum, and the geometry is scaled against it. Previously the
+     * points were scaled against `maxVal * 1.28` — an unexplained headroom
+     * multiplier — while the y-axis printed the fixed literals 18 / 10 / 0. So
+     * the two were describing different scales and neither matched the data: a
+     * case with a real maximum of 4 still had an axis ceiling of 18.
+     *
+     * Rounding up to a multiple of 5 gives a readable step, and scaling the
+     * geometry against the same number means the top tick genuinely is the
+     * ceiling and every bar can be calibrated against it.
+     */
+    const axisTop = Math.max(5, Math.ceil(Math.max(...dataset, 1) / 5) * 5);
 
     const pts = dataset.map((val, i) => ({
       x: padL + (i / Math.max(dataset.length - 1, 1)) * chartW,
-      y: 122 - (val / (maxVal * 1.28)) * 92,
+      y: 122 - (val / axisTop) * 92,
       val,
       index: i,
     }));
@@ -151,6 +165,7 @@ export const BentoGrid: React.FC<BentoGridProps> = ({
         peakPoint: { x: 0, y: 0, val: 0, index: 0 },
         minPoint: { x: 0, y: 0, val: 0, index: 0 },
         hasSeries: false,
+        axisTop,
       };
     }
 
@@ -178,8 +193,9 @@ export const BentoGrid: React.FC<BentoGridProps> = ({
       peakPoint: pts.reduce((prev, curr) => (curr.val > prev.val ? curr : prev), pts[0]),
       minPoint: pts.reduce((prev, curr) => (curr.val < prev.val ? curr : prev), pts[0]),
       hasSeries: true,
-    };
-  }, [activeFilter, diurnalHourly, monthlyHourly, plotWidth]);
+      axisTop,
+      };
+    }, [activeFilter, diurnalHourly, monthlyHourly, plotWidth]);
 
   // One keyboard-reachable control per column, so the same telemetry an
   // analyst reads with a pointer is readable with a keyboard.
@@ -203,9 +219,15 @@ export const BentoGrid: React.FC<BentoGridProps> = ({
    * Keeps a centred caption inside the plot. Band labels are centred on the
    * midpoint of their band, which for a band touching 00:00 sits hard against
    * the left padding and used to be clipped mid-word by the card edge.
+   *
+   * The half-width has to grow with the caption. It was a flat 58px, so at
+   * narrow widths the SLEEP and PEAK labels were both clamped toward the same
+   * centre and overprinted each other into an unreadable smear — and those two
+   * labels are the most decision-relevant thing on the chart. Measuring against
+   * the actual text means a long caption reserves the room it needs.
    */
-  const clampBandLabel = (x: number, width: number) =>
-    Math.min(Math.max(x, 58), Math.max(width - 58, 58));
+  const clampBandLabel = (x: number, width: number, halfWidth = 58) =>
+    Math.min(Math.max(x, halfWidth), Math.max(width - halfWidth, halfWidth));
 
   /*
    * The peak and trough bands used to be hardcoded to hours 5-13 and 17-23,
@@ -290,22 +312,55 @@ export const BentoGrid: React.FC<BentoGridProps> = ({
               </span>
               {/* Provenance counts come straight from the engine. When the
                   engine has not reported, the count is zero -- never a
-                  plausible-looking placeholder. */}
-              <span className="text-[10px] font-mono font-bold px-2 py-0.5 bg-signal-surface text-signal-ink border border-signal-line">
+                  plausible-looking placeholder.
+
+                  The LIVE chip was always signal-green, which is the colour this
+                  product reserves for corroborated evidence. A live count of
+                  zero is the worst possible provenance state: nothing in this
+                  case came from a real source. Green for "zero live sources"
+                  told the reader the opposite of what it meant, so the chip now
+                  takes its colour from the number it is reporting. */}
+              <span
+                className={`text-[10px] font-mono font-bold px-2 py-0.5 border ${
+                  (provenance?.live_count ?? 0) > 0
+                    ? "bg-signal-surface text-signal-ink border-signal-line"
+                    : "bg-alert-surface text-alert-ink border-alert-line"
+                }`}
+              >
                 LIVE: {provenance?.live_count ?? 0}
+                {(provenance?.live_count ?? 0) === 0 && (
+                  <span className="sr-only"> — no live sources contributed to this case</span>
+                )}
               </span>
-              <span className="text-[10px] font-mono font-bold px-2 py-0.5 bg-warn-surface text-warn-ink border border-warn-line">
+              <span
+                className={`text-[10px] font-mono font-bold px-2 py-0.5 border ${
+                  (provenance?.demo_count ?? 0) > 0
+                    ? "bg-warn-surface text-warn-ink border border-warn-line"
+                    : "bg-card text-ink-dim border-line-strong"
+                }`}
+              >
                 DEMO BENCHMARK: {provenance?.demo_count ?? 0}
               </span>
-              <span className="text-[10px] font-mono font-bold px-2 py-0.5 bg-card text-ink-dim border border-line-strong">
+              <span
+                className={`text-[10px] font-mono font-bold px-2 py-0.5 border ${
+                  (provenance?.unavailable_count ?? 0) > 0
+                    ? "bg-warn-surface text-warn-ink border-warn-line"
+                    : "bg-card text-ink-dim border-line-strong"
+                }`}
+              >
                 SOURCE UNAVAILABLE: {provenance?.unavailable_count ?? 0}
               </span>
             </div>
-            <p className="text-[11px] text-ink-dim font-mono mt-1 max-w-[70ch]">
-              <span className="text-info-ink font-bold">EVIDENTIARY PRINCIPLE:</span> No single
-              indicator proves actor identity.{" "}
+            {/* The hardcoded "No single indicator proves actor identity." was
+                followed immediately by the backend's own provenance rule, which
+                ends with the same proposition in different words. The same
+                sentence appeared twice within three lines, as the first
+                substantive text on the page. The generated rule is the copy that
+                is actually specific to this case, so only it is shown. */}
+            <p className="text-[10px] text-ink-dim font-mono mt-1.5 max-w-[78ch] leading-relaxed">
+              <span className="text-info-ink font-bold">PROVENANCE:</span>{" "}
               {provenance?.rule ??
-                "Findings are cross-correlated across analytical modules and sealed in a tamper-evident custody chain."}
+                "Every indicator carries its source, and whether that source was live, benchmarked, or unavailable."}
             </p>
           </div>
         </div>
@@ -429,7 +484,7 @@ export const BentoGrid: React.FC<BentoGridProps> = ({
                 type="button"
                 aria-pressed={activeFilter === "monthly"}
                 onClick={() => setActiveFilter("monthly")}
-                className={`px-3 py-1 min-h-9 transition border ${
+                className={`px-3 py-1.5 min-h-11 min-h-11 transition border ${
                   activeFilter === "monthly"
                     ? "bg-active font-semibold text-ink border-line-active"
                     : "bg-info-surface text-ink-muted hover:bg-raised border-line-strong"
@@ -441,7 +496,7 @@ export const BentoGrid: React.FC<BentoGridProps> = ({
                 type="button"
                 aria-pressed={activeFilter === "circadian"}
                 onClick={() => setActiveFilter("circadian")}
-                className={`px-3 py-1 min-h-9 transition border ${
+                className={`px-3 py-1.5 min-h-11 min-h-11 transition border ${
                   activeFilter === "circadian"
                     ? "bg-active font-semibold text-ink border-line-active"
                     : "bg-info-surface text-ink-muted hover:bg-raised border-line-strong"
@@ -647,35 +702,52 @@ export const BentoGrid: React.FC<BentoGridProps> = ({
                 strokeWidth="1"
               />
 
-              {/* Y-axis ticks. 8px slate failed contrast at 3.9:1; ink-dim
-                  clears 6:1 and is now the smallest type on the chart. */}
-              <text
-                x="6"
-                y="34"
-                fill="var(--color-ink-dim)"
-                fontSize="9"
-                fontFamily="var(--font-mono)"
-              >
-                18
-              </text>
-              <text
-                x="6"
-                y="79"
-                fill="var(--color-ink-dim)"
-                fontSize="9"
-                fontFamily="var(--font-mono)"
-              >
-                10
-              </text>
-              <text
-                x="6"
-                y="127"
-                fill="var(--color-ink-dim)"
-                fontSize="9"
-                fontFamily="var(--font-mono)"
-              >
-                0
-              </text>
+              {/* Y-axis ticks, derived from the data.
+
+                  These were the literals 18, 10 and 0 while `maxVal` was
+                  computed and left unused. So the axis claimed a ceiling of 18
+                  on a case whose real maximum was 4, and a reader had no way to
+                  tell whether a value of 12 was high or low. The scale is now
+                  computed from the plotted series and rounded to a readable
+                  step, and the top tick is labelled as the axis maximum so the
+                  reader can calibrate every bar against it.
+
+                  Font size is 10px, the documented floor: 9px is below it. */}
+              {(() => {
+                const top = axisTop;
+                const mid = top / 2;
+                return (
+                  <>
+                    <text
+                      x="6"
+                      y="34"
+                      fill="var(--color-ink-dim)"
+                      fontSize="10"
+                      fontFamily="var(--font-mono)"
+                    >
+                      {top}
+                    </text>
+                    <text
+                      x="6"
+                      y="79"
+                      fill="var(--color-ink-dim)"
+                      fontSize="10"
+                      fontFamily="var(--font-mono)"
+                    >
+                      {Number.isInteger(mid) ? mid : mid.toFixed(1)}
+                    </text>
+                    <text
+                      x="6"
+                      y="127"
+                      fill="var(--color-ink-dim)"
+                      fontSize="10"
+                      fontFamily="var(--font-mono)"
+                    >
+                      0
+                    </text>
+                  </>
+                );
+              })()}
 
               {activeFilter === "circadian" && hasSeries && (
                 <>
@@ -699,14 +771,20 @@ export const BentoGrid: React.FC<BentoGridProps> = ({
                     strokeDasharray="4 3"
                     opacity="0.65"
                   />
+                  {/* The two band captions share a 27px baseline and are clamped
+                      to the plot, so on a narrow plot they can still land on top
+                      of each other. They are separated vertically instead: the
+                      peak caption sits above the trough one, which keeps both
+                      legible at 390px rather than overprinting them. */}
                   <text
                     x={clampBandLabel(
                       (points[peakWindowStart].x + points[peakWindowEnd].x) / 2,
                       plotWidth,
+                      72,
                     )}
-                    y="27"
+                    y="19"
                     fill="var(--color-signal-ink)"
-                    fontSize="9"
+                    fontSize="10"
                     fontFamily="var(--font-mono)"
                     fontWeight="700"
                     textAnchor="middle"
@@ -732,10 +810,11 @@ export const BentoGrid: React.FC<BentoGridProps> = ({
                     x={clampBandLabel(
                       (points[troughWindowStart].x + points[troughWindowEnd].x) / 2,
                       plotWidth,
+                      72,
                     )}
-                    y="27"
+                    y="31"
                     fill="var(--color-alert-ink)"
-                    fontSize="9"
+                    fontSize="10"
                     fontFamily="var(--font-mono)"
                     fontWeight="700"
                     textAnchor="middle"
@@ -947,14 +1026,19 @@ export const BentoGrid: React.FC<BentoGridProps> = ({
             />
           </svg>
           <div className="absolute bottom-2 flex flex-col items-center">
-            <span className="text-2xl font-black text-ink font-mono">{scorePct}</span>
+            {/* The one place the headline confidence appears on this screen.
+                It previously appeared three more times at 24/700, 24/900 and
+                11/700 in other cards. */}
+            <span className="text-[30px] font-extrabold text-ink font-mono tabular-nums">
+              {scorePct}
+            </span>
             <span className="text-[10px] font-bold text-ink-dim uppercase tracking-wider">
               {scoreNum >= 90 ? "Judicial Proof" : scoreNum >= 75 ? "High Lead" : "Inconclusive"}
             </span>
           </div>
         </div>
 
-        <div className="flex items-center justify-between text-xs font-semibold pt-3 border-t border-line">
+        <div className="flex items-center justify-between text-[12px] font-semibold pt-3 border-t border-line">
           <span className="text-ink-dim">Contradiction Penalty</span>
           <span className="font-mono text-ink-muted">
             {/*
@@ -967,10 +1051,110 @@ export const BentoGrid: React.FC<BentoGridProps> = ({
               : "0.0% (no conflicts reported)"}
           </span>
         </div>
+
+        {/* ------------------------------------------------------------------
+            The deterministic / probabilistic split.
+
+            The engine returns s_det, s_ai, weight_det, weight_ai and
+            total_penalty in every response. This panel rendered only
+            total_penalty, so the single most important claim this product
+            makes — that its confidence is weighted toward reproducible
+            evidence rather than inference, which is what the "adheres to
+            Daubert/Frye" caption rests on — was asserted in prose and shown
+            nowhere as numbers.
+
+            When the engine does not report the split (older records, the
+            fallback corpus), it is named as missing rather than substituted or
+            hidden, per the same degradation rule the stylometry panel uses.
+            ------------------------------------------------------------------ */}
+        {(() => {
+          const bd = attribution?.breakdown as
+            | {
+                s_det?: number;
+                s_ai?: number;
+                weight_det?: number;
+                weight_ai?: number;
+              }
+            | undefined;
+          const hasSplit =
+            typeof bd?.s_det === "number" && typeof bd?.s_ai === "number";
+
+          if (!hasSplit) {
+            return (
+              <p className="text-[10px] text-ink-faint font-mono mt-3 leading-relaxed border-t border-line pt-3">
+                The deterministic / probabilistic split is not reported for this
+                record, so the composition of this score cannot be shown. The
+                headline figure alone should not be relied on.
+              </p>
+            );
+          }
+
+          const detPct = Math.round(bd.s_det! * 100);
+          const aiPct = Math.round(bd.s_ai! * 100);
+          const wDet =
+            typeof bd.weight_det === "number" ? Math.round(bd.weight_det * 100) : null;
+          const wAi =
+            typeof bd.weight_ai === "number" ? Math.round(bd.weight_ai * 100) : null;
+
+          return (
+            <div className="mt-3 pt-3 border-t border-line">
+              <div className="flex items-baseline justify-between">
+                <span className="text-[10px] uppercase tracking-widest text-ink-faint font-mono">
+                  Score composition
+                </span>
+                {wDet !== null && wAi !== null && (
+                  <span className="text-[10px] text-ink-dim font-mono">
+                    weighted {wDet} / {wAi}
+                  </span>
+                )}
+              </div>
+              {/* A single ruled bar: deterministic on the left, probabilistic
+                  on the right. This is a different encoding from the gauge
+                  above, deliberately — the gauge answers "how confident", this
+                  answers "confident about what", and rendering both as a second
+                  big number is what made the panel repetitive. */}
+              <div
+                className="flex h-2.5 mt-2 border border-line-strong"
+                role="img"
+                aria-label={`Score composition: ${detPct}% from deterministic indicators, ${aiPct}% from probabilistic inference.${
+                  wDet !== null && wAi !== null
+                    ? ` Weighted ${wDet} toward deterministic, ${wAi} toward probabilistic.`
+                    : ""
+                }`}
+              >
+                <span
+                  className="bg-info"
+                  style={{ width: `${detPct}%` }}
+                ></span>
+                <span
+                  className="bg-warn"
+                  style={{ width: `${aiPct}%` }}
+                ></span>
+              </div>
+              <div className="flex justify-between mt-1.5 text-[10px] font-mono">
+                <span className="text-info-ink">
+                  <span className="text-ink-dim">deterministic </span>
+                  {detPct}%
+                </span>
+                <span className="text-warn-ink">
+                  {aiPct}% <span className="text-ink-dim">probabilistic</span>
+                </span>
+              </div>
+            </div>
+          );
+        })()}
       </div>
 
-      {/* MIDDLE ROW 3: Suspect Profile Card */}
-      <div className="matte-card p-6 flex flex-col items-center text-center justify-between">
+      {/* MIDDLE ROW 3: Suspect Profile Card.
+
+          `justify-start` replaces `justify-between`. The card is a grid child
+          and the grid equalises row heights, so `justify-between` pushed the
+          three metrics to the bottom of a stretched card and left a band of
+          dead space between them and the identity block above — visible as an
+          empty third of the card in the 1440px screenshot. The metrics are the
+          information on this card, so they follow the identity directly and the
+          dead band closes. */}
+      <div className="matte-card p-6 flex flex-col items-center text-center justify-start">
         <div className="flex flex-col items-center">
           {/*
             This was a DiceBear robot fetched from api.dicebear.com, which sent
@@ -1075,7 +1259,7 @@ export const BentoGrid: React.FC<BentoGridProps> = ({
           <p className="px-3 py-2 font-mono text-xs font-bold text-alert-ink truncate">
             {currentOriginIp}
           </p>
-          <p className="px-3 pb-2.5 text-[9px] text-ink-dim font-mono">
+          <p className="px-3 pb-2.5 text-[10px] text-ink-dim font-mono">
             Favicon mmh3 correlation
           </p>
 
@@ -1086,7 +1270,7 @@ export const BentoGrid: React.FC<BentoGridProps> = ({
           <p className="px-3 py-2 font-mono text-[11px] font-bold text-ink truncate">
             {currentBtc || "None resolved"}
           </p>
-          <p className="px-3 pb-2.5 text-[9px] text-ink-dim font-mono">
+          <p className="px-3 pb-2.5 text-[10px] text-ink-dim font-mono">
             Cluster size not reported
           </p>
 
@@ -1097,7 +1281,7 @@ export const BentoGrid: React.FC<BentoGridProps> = ({
           <p className="px-3 py-2 font-mono text-xs font-bold text-ink tracking-wider break-all">
             {currentPgp || "None resolved"}
           </p>
-          <p className="px-3 pb-2.5 text-[9px] text-ink-dim font-mono">Key reuse not scored</p>
+          <p className="px-3 pb-2.5 text-[10px] text-ink-dim font-mono">Key reuse not scored</p>
         </div>
         <p className="sr-only">
           Cryptographic anchors for this case: clearnet origin {currentOriginIp}, wallet{" "}
@@ -1168,10 +1352,21 @@ export const BentoGrid: React.FC<BentoGridProps> = ({
           >
             <i className="fa-solid fa-fingerprint"></i>
           </div>
-          <h3 className="text-base font-bold text-ink">Courtroom ready</h3>
-          <p className="text-xs text-ink-muted mt-1 max-w-[34ch]">
-            Release requires an investigator to affirm the dossier. Every export is sealed into the
-            custody chain at the moment of release.
+          {/* Was "Courteous ready": a compliment, in a headline, in the position
+              a compliance statement belongs. It also asserted a property of the
+              product ("courtroom ready") that the product cannot itself verify —
+              whether an export is admissible depends on the evidence and the
+              tribunal, not on this interface.
+
+              It now states the two things that are actually true and actually
+              checkable: release requires a human affirmation, and a released
+              export creates a permanent custody record. */}
+          <h3 className="text-[16px] font-bold text-ink">Release is gated</h3>
+          <p className="text-[12px] text-ink-muted mt-1.5 max-w-[42ch] leading-relaxed">
+            No document leaves this system until an investigator with release
+            rights affirms it. That affirmation is itself recorded as a custody
+            block, so the export and the act of releasing it are permanently
+            linked.
           </p>
         </div>
 

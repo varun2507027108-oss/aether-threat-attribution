@@ -509,17 +509,22 @@ export async function commitEvidenceAnchor(
       return {
         success: true,
         isLive: true,
-        message: `Committed ${anchorType} to Neo4j graph (${data.node_count} nodes active).`,
+        message: `Linked ${anchorType} into the STIX 2.1 entity graph (${data.node_count} nodes).`,
       };
     }
   } catch (err) {
     console.warn("Graph API unavailable, using client fallback:", err);
   }
 
+  // The request never reached the backend, so the anchor is NOT committed
+  // anywhere. This used to read "Cached locally (Standalone Neo4j schema
+  // active)", which asserted a persistence layer that does not exist: there is
+  // no Neo4j in this product and nothing was written to disk. A commit that did
+  // not happen must say so.
   return {
-    success: true,
+    success: false,
     isLive: false,
-    message: `Cached ${anchorType} locally (Standalone Neo4j schema active).`,
+    message: `Backend unreachable. ${anchorType} was NOT committed and has been discarded.`,
   };
 }
 
@@ -680,7 +685,7 @@ export async function downloadForensicCsv(
     "Indicator Type,Indicator Value,Attributed Entity,Confidence Score,Deterministic Proof",
     "Origin IPv4,185.220.101.42,ZeroTrace / ShadowByte,94.8%,Favicon mmh3 + JARM TLS",
     "PGP Fingerprint,4D9E 27BC 918A 4FB2 C192 8841 0293 4810 F980 1204,APT-091,100.0%,Deterministic Key Reuse",
-    "Bitcoin Root,1A1zP1eP5QGefi2DMPTfTL5SLmv7DivfNa,ZeroTrace Wallet,88.5%,Multi-Input Peel Cluster",
+    "Bitcoin Root,demo-wallet-0000-not-a-real-address,ZeroTrace Wallet,88.5%,Multi-Input Peel Cluster",
     "Timezone,UTC+05:30 (IST),Suspect Operator,84.2%,Circadian Sleep Trough Model",
   ].join("\r\n");
 
@@ -1086,7 +1091,14 @@ function buildFallbackInvestigation(req: InvestigationRequest): InvestigationRes
       geo: "Munich, Bavaria, Germany",
       asn: "AS9009 M247 Europe",
       pgp_fingerprint: "4D9E 27BC 918A 4F02 C731 09AE 2C5B 88E1 40FA 7D3C",
-      btc_root: "1A1zP1eP5QGefi2DMPTfTL5SLmv7DivfNa",
+      // Not 1A1zP1eP5QGefi2DMPTfTL5SLmv7DivfNa, which is what this field
+      // previously held. That is the Bitcoin genesis block address — a real,
+      // publicly-owned address — and the fallback dossier attached "$2.48M
+      // clustered volume" and a pending subpoena to it. A demo record naming a
+      // real third-party address is exactly the failure this product's own
+      // thesis warns about, and it is worse in demo data than in live data
+      // because demo data is the part people show off.
+      btc_root: "demo-wallet-0000-not-a-real-address",
       confidence: 94.8,
       onion_url: targetType === "onion" ? target : "http://p4lx7e22kq6dreadmarket.onion",
       target_url: target,

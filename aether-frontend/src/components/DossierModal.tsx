@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState } from "react";
+import type { ToastSeverity } from "@/components/Toast";
 import {
   downloadForensicCsv,
   downloadStatutoryCertificate,
@@ -14,7 +15,7 @@ interface DossierModalProps {
   onClose: () => void;
   investigation?: InvestigationResult | null;
   evidenceId?: string;
-  onShowToast: (title: string, message: string) => void;
+  onShowToast: (title: string, message: string, severity?: ToastSeverity) => void;
 }
 
 export const DossierModal: React.FC<DossierModalProps> = ({

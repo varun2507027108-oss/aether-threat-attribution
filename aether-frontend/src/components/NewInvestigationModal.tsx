@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useEffect, useRef, useState } from "react";
+import type { ToastSeverity } from "@/components/Toast";
 import { Modal } from "@/components/Modal";
 import {
   InvestigationRequest,
@@ -14,7 +15,7 @@ interface NewInvestigationModalProps {
   isOpen: boolean;
   onClose: () => void;
   onInvestigationComplete: (result: InvestigationResult) => void;
-  onShowToast: (title: string, message: string) => void;
+  onShowToast: (title: string, message: string, severity?: ToastSeverity) => void;
 }
 
 const PRESETS = [
@@ -101,8 +102,21 @@ export const NewInvestigationModal: React.FC<NewInvestigationModalProps> = ({
   const [actorName, setActorName] = useState("UNC-3844");
   const [target, setTarget] = useState("http://p4lx7e22kq6dreadmarket.onion");
   const [targetType, setTargetType] = useState("onion");
-  const [knownPgp, setKnownPgp] = useState("4D9E 27BC 918A 4F02 C731 09AE 2C5B 88E1 40FA 7D3C");
-  const [knownBtc, setKnownBtc] = useState("1A1zP1eP5QGefi2DMPTfTL5SLmv7DivfNa");
+  // Both leads start EMPTY on purpose.
+  //
+  // They used to be pre-filled with a real PGP fingerprint and
+  // 1A1zP1eP5QGefi2DMPTfTL5SLmv7DivfNa — the Bitcoin genesis block address —
+  // inside an accordion that is collapsed by default, while the payload below
+  // submitted them regardless of whether the analyst had ever opened it. A
+  // hidden, pre-filled field that is silently submitted is the exact failure
+  // this product's own thesis warns against: a value with no provenance source
+  // reads as evidence. The same address also appeared as the rendered "WALLET"
+  // anchor, so it was load-bearing on screen, not just in the request.
+  //
+  // The presets above still offer these values, but as something the analyst
+  // visibly chooses, which is the difference that matters.
+  const [knownPgp, setKnownPgp] = useState("");
+  const [knownBtc, setKnownBtc] = useState("");
   const [textSample, setTextSample] = useState(
     "We operate high volume ransom payment gateways on dread. Full escrow guaranteed with PGP."
   );
@@ -224,9 +238,13 @@ export const NewInvestigationModal: React.FC<NewInvestigationModalProps> = ({
         actor_name: actorName.trim() || "UNC-3844",
         target: target.trim(),
         target_type: targetType,
-        known_pgp: knownPgp.trim() || undefined,
-        known_btc: knownBtc.trim() || undefined,
-        text_sample: textSample.trim() || undefined,
+        // Gated on the panel being open, so a lead cannot be submitted from a
+        // section the analyst never opened. The fields also start empty, so in
+        // practice this is belt and braces, but it means the invariant holds if
+        // a future preset pre-fills them again.
+        known_pgp: showAdvanced ? knownPgp.trim() || undefined : undefined,
+        known_btc: showAdvanced ? knownBtc.trim() || undefined : undefined,
+        text_sample: showAdvanced ? textSample.trim() || undefined : undefined,
         mode,
       };
 
@@ -575,7 +593,7 @@ export const NewInvestigationModal: React.FC<NewInvestigationModalProps> = ({
                     className="p-2.5 text-left bg-surface hover:bg-info-surface border border-line hover:border-info-line-strong transition group"
                   >
                     <div className="flex items-center justify-between">
-                      <span className="text-[9px] font-mono font-bold px-1.5 py-0.5 bg-raised text-info-ink border border-info-line">
+                      <span className="text-[10px] font-mono font-bold px-1.5 py-0.5 bg-raised text-info-ink border border-info-line">
                         {p.badge}
                       </span>
                       <i className="fa-solid fa-arrow-right text-[10px] text-ink-faint group-hover:text-info-ink transition"></i>
@@ -665,61 +683,56 @@ export const NewInvestigationModal: React.FC<NewInvestigationModalProps> = ({
                 <span className="font-bold text-ink">Execution Mode &amp; Provenance Tagging</span>
                 <span className="text-[10px] text-info-ink">Strict Non-Deception Rule</span>
               </div>
-              <div className="grid grid-cols-3 gap-2 text-xs font-mono">
-                <label
-                  className={`p-2 border cursor-pointer text-center transition ${
-                    mode === "auto"
-                      ? "bg-info-raised border-info-line text-white font-bold"
-                      : "bg-input border-line text-ink-muted"
-                  }`}
-                >
-                  <input
-                    type="radio"
-                    name="mode"
-                    value="auto"
-                    checked={mode === "auto"}
-                    onChange={(e) => setMode(e.target.value)}
-                    className="hidden"
-                  />
-                  Auto-Detect (Honest)
-                </label>
-                <label
-                  className={`p-2 border cursor-pointer text-center transition ${
-                    mode === "live"
-                      ? "bg-info-raised border-info-line text-white font-bold"
-                      : "bg-input border-line text-ink-muted"
-                  }`}
-                >
-                  <input
-                    type="radio"
-                    name="mode"
-                    value="live"
-                    checked={mode === "live"}
-                    onChange={(e) => setMode(e.target.value)}
-                    className="hidden"
-                  />
-                  Live Source Only
-                </label>
-                <label
-                  className={`p-2 border cursor-pointer text-center transition ${
-                    mode === "demo"
-                      ? "bg-info-raised border-info-line text-white font-bold"
-                      : "bg-input border-line text-ink-muted"
-                  }`}
-                >
-                  <input
-                    type="radio"
-                    name="mode"
-                    value="demo"
-                    checked={mode === "demo"}
-                    onChange={(e) => setMode(e.target.value)}
-                    className="hidden"
-                  />
-                  Demo Benchmark
-                </label>
-              </div>
-              <p className="text-[10px] text-ink-muted font-mono leading-relaxed">
-                <i className="fa-solid fa-shield-halved text-info-ink mr-1"></i>
+              {/* The three radios were `className="hidden"`, which removes them
+                  from the tab order and the accessibility tree entirely. This is
+                  the control that decides whether results are tagged LIVE or
+                  DEMO, and it was reachable by pointer only, signalled by
+                  background colour alone. The native input is now kept, sized to
+                  fill the segment, and made transparent rather than hidden, so it
+                  stays focusable, still announces its checked state, and keeps
+                  native arrow-key group navigation. */}
+              <fieldset
+                className="border-0 p-0 m-0"
+                aria-describedby="provenance-explainer"
+              >
+                <legend className="sr-only">Execution mode and provenance tagging</legend>
+                <div className="grid grid-cols-3 gap-2 text-xs font-mono">
+                  {(
+                    [
+                      ["auto", "Auto-detect", "Tries live sources, falls back to the benchmark corpus and says which it used."],
+                      ["live", "Live source only", "Refuses to use benchmark data. A source that cannot be reached is reported as unavailable, not substituted."],
+                      ["demo", "Demo benchmark", "Runs entirely against the local benchmark corpus. Every figure is tagged DEMO."],
+                    ] as const
+                  ).map(([value, title, help]) => (
+                    <label
+                      key={value}
+                      className={`relative p-2 border cursor-pointer text-center transition flex flex-col items-center gap-0.5 min-h-11 justify-center ${
+                        mode === value
+                          ? "bg-info-raised border-info-line text-ink font-bold"
+                          : "bg-input border-line text-ink-muted hover:border-line-active"
+                      }`}
+                    >
+                      <input
+                        type="radio"
+                        name="mode"
+                        value={value}
+                        checked={mode === value}
+                        onChange={(e) => setMode(e.target.value)}
+                        className="absolute inset-0 w-full h-full opacity-0 cursor-pointer m-0"
+                      />
+                      <span className="relative pointer-events-none">{title}</span>
+                      <span className="relative pointer-events-none text-[10px] font-normal text-ink-faint leading-tight">
+                        {help}
+                      </span>
+                    </label>
+                  ))}
+                </div>
+              </fieldset>
+              <p
+                id="provenance-explainer"
+                className="text-[10px] text-ink-muted font-mono leading-relaxed"
+              >
+                <i className="fa-solid fa-shield-halved text-info-ink mr-1" aria-hidden="true"></i>
                 AETHER does not simulate live intelligence: Results are explicitly tagged{" "}
                 <span className="text-signal-ink font-bold">LIVE SOURCE</span>,{" "}
                 <span className="text-warn-ink font-bold">DEMO DATA</span>, or{" "}
@@ -762,7 +775,7 @@ export const NewInvestigationModal: React.FC<NewInvestigationModalProps> = ({
                       type="text"
                       value={knownBtc}
                       onChange={(e) => setKnownBtc(e.target.value)}
-                      placeholder="1A1zP1eP5QGefi2DMPTfTL5SLmv7DivfNa or bc1qa5wk..."
+                      placeholder="bc1q… or 1A1zP1… (a real address, if you have one)"
                       className="w-full bg-card border border-line-strong px-3 py-1.5 text-xs text-white"
                     />
                   </div>

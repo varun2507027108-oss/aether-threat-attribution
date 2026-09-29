@@ -1,13 +1,14 @@
 "use client";
 
 import React, { useState } from "react";
+import type { ToastSeverity } from "@/components/Toast";
 import { Modal } from "@/components/Modal";
-import { checkBackendHealth } from "@/lib/api";
+import { checkBackendHealth, API_BASE } from "@/lib/api";
 
 interface EngineConfigModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onShowToast: (title: string, message: string) => void;
+  onShowToast: (title: string, message: string, severity?: ToastSeverity) => void;
 }
 
 export const EngineConfigModal: React.FC<EngineConfigModalProps> = ({
@@ -18,11 +19,13 @@ export const EngineConfigModal: React.FC<EngineConfigModalProps> = ({
   const [torHost, setTorHost] = useState<string>("127.0.0.1");
   const [torPort, setTorPort] = useState<string>("9050");
   const [torEnabled, setTorEnabled] = useState<boolean>(true);
-  const [backendUrl, setBackendUrl] = useState<string>("http://localhost:8000");
-  const [neo4jUrl, setNeo4jUrl] = useState<string>("bolt://localhost:7687");
+  const [backendUrl, setBackendUrl] = useState<string>(API_BASE);
   const [pinging, setPinging] = useState<boolean>(false);
   const [pingResult, setPingResult] = useState<{ status: string; latency: number } | null>(null);
 
+  // This pings the URL the bundle was compiled with (API_BASE), NOT the URL in
+  // the form. It used to report the typed value back as the dialled address,
+  // which is a claim the code never tested.
   const handlePing = async () => {
     setPinging(true);
     const start = performance.now();
@@ -31,10 +34,10 @@ export const EngineConfigModal: React.FC<EngineConfigModalProps> = ({
       const latency = Math.round(performance.now() - start);
       if (res.online) {
         setPingResult({ status: "ONLINE (HTTP 200)", latency });
-        onShowToast("Backend Gateway Connected", `FastAPI responding at ${backendUrl} (${latency}ms).`);
+        onShowToast("Backend Gateway Connected", `FastAPI responding at ${API_BASE} (${latency}ms).`);
       } else {
         setPingResult({ status: "UNREACHABLE", latency });
-        onShowToast("Connection Warning", "FastAPI backend did not respond at target URL.");
+        onShowToast("Connection Warning", `FastAPI did not respond at the compiled gateway ${API_BASE}.`);
       }
     } catch {
       setPingResult({ status: "ERROR", latency: 0 });
@@ -43,13 +46,16 @@ export const EngineConfigModal: React.FC<EngineConfigModalProps> = ({
     }
   };
 
+  // The fields below are a display of the engine's configuration; there is no
+  // server-side settings endpoint, so nothing here can be applied. The old
+  // handler toasted "Configuration Saved", which asserted a persistence that
+  // does not exist. It now says plainly that the values are read-only.
   const handleSave = (e: React.FormEvent) => {
     e.preventDefault();
     onShowToast(
-      "Configuration Saved",
-      `Tor Proxy: ${torHost}:${torPort} | Backend: ${backendUrl}`
+      "Not Persisted",
+      `Tor proxy ${torHost}:${torPort} and backend ${backendUrl} are display-only — this build has no settings endpoint, so nothing was saved.`
     );
-    onClose();
   };
 
   return (
@@ -72,10 +78,11 @@ export const EngineConfigModal: React.FC<EngineConfigModalProps> = ({
           </div>
           <button
             onClick={onClose}
-            className="w-8 h-8 bg-info-surface text-ink-muted flex items-center justify-center hover:bg-active hover:text-white border border-line-strong transition"
+            className="w-11 h-11 bg-info-surface text-ink-muted flex items-center justify-center hover:bg-active hover:text-ink border border-line-strong transition"
             title="Close"
+            aria-label="Close engine configuration"
           >
-            <i className="fa-solid fa-xmark text-xs"></i>
+            <i className="fa-solid fa-xmark text-xs" aria-hidden="true"></i>
           </button>
         </div>
 
@@ -129,26 +136,19 @@ export const EngineConfigModal: React.FC<EngineConfigModalProps> = ({
             />
           </div>
 
-          {/* Neo4j Bolt URL */}
-          <div>
-            <label className="text-ink block mb-1 uppercase text-[10px] font-bold">
-              Neo4j Graph Database
-            </label>
-            <input
-              type="text"
-              value={neo4jUrl}
-              onChange={(e) => setNeo4jUrl(e.target.value)}
-              placeholder="bolt://localhost:7687"
-              className="w-full bg-input border border-line-strong p-2 text-ink"
-            />
-          </div>
-
-          {/* Gateway Ping Status */}
+          {/* Gateway Ping Status. The placeholder used to be a hardcoded
+              "127.0.0.1:8000" shown in signal green before any ping had run,
+              which read as a live result. It now states the compiled-in gateway
+              and says it has not been contacted. */}
           <div className="bg-input border border-line p-3 flex justify-between items-center">
             <div>
               <span className="text-[10px] text-ink-muted block uppercase">Gateway Telemetry</span>
-              <span className="text-xs font-bold text-signal-ink">
-                {pingResult ? `${pingResult.status} (${pingResult.latency}ms)` : "127.0.0.1:8000"}
+              <span
+                className={`text-xs font-bold ${pingResult ? "text-signal-ink" : "text-ink-dim"}`}
+              >
+                {pingResult
+                  ? `${pingResult.status} (${pingResult.latency}ms)`
+                  : `Not yet contacted — ${API_BASE}`}
               </span>
             </div>
             <button
@@ -170,9 +170,10 @@ export const EngineConfigModal: React.FC<EngineConfigModalProps> = ({
           <div className="flex gap-2 pt-2">
             <button
               type="submit"
-              className="w-full py-2.5 bg-active hover:bg-info-hover text-white font-bold transition border border-line-active flex items-center justify-center gap-2"
+              className="w-full min-h-11 py-2.5 bg-active hover:bg-info-hover text-white font-bold transition border border-line-active flex items-center justify-center gap-2"
             >
-              <i className="fa-solid fa-check text-xs"></i> Save &amp; Apply
+              <i className="fa-solid fa-circle-info text-xs" aria-hidden="true"></i>{" "}
+              Explain these values
             </button>
           </div>
         </form>

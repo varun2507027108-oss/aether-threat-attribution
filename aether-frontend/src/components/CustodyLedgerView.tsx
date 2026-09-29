@@ -1,6 +1,7 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
+import type { ToastSeverity } from "@/components/Toast";
 import {
   appendCustodyEntry,
   CustodyEntryItem,
@@ -8,13 +9,14 @@ import {
   downloadStatutoryCertificate,
   downloadStixBundle,
   fetchCaseCustody,
+  fetchWhoAmI,
   verifyCustodyLedger,
   VerifyResult,
 } from "@/lib/api";
 
 interface CustodyLedgerViewProps {
   evidenceId?: string;
-  onShowToast: (title: string, message: string) => void;
+  onShowToast: (title: string, message: string, severity?: ToastSeverity) => void;
 }
 
 export const CustodyLedgerView: React.FC<CustodyLedgerViewProps> = ({
@@ -26,9 +28,37 @@ export const CustodyLedgerView: React.FC<CustodyLedgerViewProps> = ({
   const [verifying, setVerifying] = useState<boolean>(false);
   const [submitting, setSubmitting] = useState<boolean>(false);
 
-  // New entry form state
-  const [actorName, setActorName] = useState<string>("CERT-In Digital Forensics");
+  // New entry form state. `actorName` is EMPTY by default.
+  //
+  // It was pre-filled with "CERT-In Digital Forensics", an organisation, while
+  // the header showed the authenticated role as `investigator` and the rail
+  // showed a different monogram. A chain-of-custody block has to name the party
+  // answerable for the action, so defaulting it to a lab name writes a record
+  // that attributes the evidence to no identifiable person — and the field is
+  // freely editable, so the default was what nearly every block would say.
+  const [actorName, setActorName] = useState<string>("");
   const [actionDesc, setActionDesc] = useState<string>("");
+
+  // The empty state focuses this, so the analyst lands in the field that starts
+  // the chain rather than being told to scroll.
+  const actionRef = useRef<HTMLTextAreaElement | null>(null);
+
+  // The signed-in role, shown next to the actor field so the analyst can match
+  // the two rather than guessing which identity belongs in the record.
+  const [authRole, setAuthRole] = useState<string | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    fetchWhoAmI()
+      .then((who) => {
+        if (!cancelled && who) setAuthRole(who.role);
+      })
+      .catch(() => {
+        /* The role is a hint, not a gate; its absence must not block the form. */
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   /*
    * `loading` is derived rather than set. The effect previously called
@@ -60,12 +90,17 @@ export const CustodyLedgerView: React.FC<CustodyLedgerViewProps> = ({
       } else if (result.status === 409) {
         onShowToast(
           "Release not affirmed",
-          "An investigator must affirm release before a court document can be issued."
+          "An investigator must affirm release before a court document can be issued.",
+          "warning"
         );
       } else if (result.status === 403) {
-        onShowToast("Not permitted", "Your role cannot issue a court document for this case.");
+        onShowToast(
+          "Not permitted",
+          "Your role cannot issue a court document for this case.",
+          "warning"
+        );
       } else {
-        onShowToast("Certificate not issued", result.detail);
+        onShowToast("Certificate not issued", result.detail, "critical");
       }
     } finally {
       setIssuingCertificate(false);
@@ -94,7 +129,8 @@ export const CustodyLedgerView: React.FC<CustodyLedgerViewProps> = ({
          */
         onShowToast(
           "Custody ledger unavailable",
-          `Could not load the ledger for ${evidenceId}. Nothing is displayed because no chain was retrieved — open /verify.html with an exported ledger to verify it offline.`
+          `Could not load the ledger for ${evidenceId}. Nothing is displayed because no chain was retrieved — open /verify.html with an exported ledger to verify it offline.`,
+          "critical"
         );
       } finally {
         if (!cancelled) setLoadedId(evidenceId);
@@ -116,16 +152,25 @@ export const CustodyLedgerView: React.FC<CustodyLedgerViewProps> = ({
           `Tamper-evident chain valid across ${data.entry_count} custody blocks. Seal: ${data.seal.substring(
             0,
             16
-          )}...`
+          )}...`,
+          "success"
         );
       } else {
         onShowToast(
           "Ledger Tamper Detected",
-          `Integrity failure at block sequence #${data.broken_at_seq}. Hashes mismatch!`
+          `Integrity failure at block sequence #${data.broken_at_seq}. Hashes mismatch!`,
+          "critical"
         );
       }
     } catch {
-      onShowToast("Ledger Verification", "Chain verified against local cryptographic root.");
+      // The catch used to announce "Chain verified against local cryptographic
+      // root." A failed request is the opposite of a verification, and there is
+      // no local cryptographic root in the browser bundle to verify against.
+      onShowToast(
+        "Ledger Not Verified",
+        "The verification request failed, so the chain's integrity is unknown. Treat it as unverified until this succeeds.",
+        "critical"
+      );
     } finally {
       setVerifying(false);
     }
@@ -151,12 +196,21 @@ export const CustodyLedgerView: React.FC<CustodyLedgerViewProps> = ({
       setActionDesc("");
       onShowToast(
         isLive ? "Entry Appended & Re-Sealed" : "Entry Committed (Buffer)",
-        `SHA-256 block linked. Sequence: ${entry?.seq ?? "N/A"}.`
+        `SHA-256 block linked. Sequence: ${entry?.seq ?? "N/A"}.`,
+        "success"
       );
       // Re-verify
       handleVerify();
     } catch {
-      onShowToast("Chain Commit", "Appended record to audit ledger.");
+      // Previously "Appended record to audit ledger", on a code path that only
+      // runs when the append request threw. An append that failed cannot have
+      // been recorded, and on an append-only ledger a custody record that does
+      // not exist is indistinguishable from one that was never made.
+      onShowToast(
+        "Append Failed",
+        "The ledger rejected the write, so no custody block was created. The action you described has NOT been recorded.",
+        "critical"
+      );
     } finally {
       setSubmitting(false);
     }
@@ -197,7 +251,7 @@ export const CustodyLedgerView: React.FC<CustodyLedgerViewProps> = ({
           <button
             onClick={handleVerify}
             disabled={verifying}
-            className="px-4 py-2 bg-active hover:bg-info-hover text-white text-xs font-bold font-mono transition border border-line-active flex items-center gap-2"
+            className="px-4 py-2.5 min-h-11 bg-active hover:bg-info-hover text-white text-xs font-bold font-mono transition border border-line-active flex items-center gap-2"
           >
             {verifying ? (
               <span className="inline-block w-3.5 h-3.5 border-2 border-white border-t-transparent animate-spin"></span>
@@ -221,9 +275,158 @@ export const CustodyLedgerView: React.FC<CustodyLedgerViewProps> = ({
               <p className="text-white font-bold break-all text-[11px] mt-0.5">{verification.seal}</p>
             </div>
           </div>
-          <span className="px-2.5 py-1 bg-info-raised text-info-ink border border-info-line-soft text-[11px] font-bold self-end md:self-center">
-            {verification.entry_count} Verified Blocks
-          </span>
+          {/* "7 Verified Blocks" (the engine's count) and "Total Blocks: 4"
+              (the rows actually rendered) used to sit forty pixels apart with no
+              reconciliation, on the one screen where the numbers have to agree.
+              A verifier's first question is whether the ledger is complete, so
+              a mismatch is now stated rather than left to be noticed. */}
+          {verification.entry_count !== entries.length ? (
+            <span
+              className="px-2.5 py-1 bg-warn-surface text-warn-ink border border-warn-line text-[11px] font-bold self-end md:self-center"
+              title={`The engine reports ${verification.entry_count} blocks but ${entries.length} were retrieved for display. The chain may be truncated, or the ledger may have advanced since verification.`}
+            >
+              Count mismatch: {verification.entry_count} verified /{" "}
+              {entries.length} loaded
+              <span className="sr-only">
+                {" "}
+                — the number of blocks the engine verified does not match the
+                number of rows retrieved
+              </span>
+            </span>
+          ) : (
+            <span className="px-2.5 py-1 bg-info-raised text-info-ink border border-info-line-soft text-[11px] font-bold self-end md:self-center">
+              {verification.entry_count} Verified Blocks
+            </span>
+          )}
+        </div>
+      )}
+
+      {/* ------------------------------------------------------------------
+          The chain, drawn as a chain.
+
+          Every ledger's value is that it is append-only and that each block is
+          bound to the one above it. The table below shows that as a column of
+          unrelated rows, so the property the product is selling is invisible,
+          and a tamper surfaces only as a transient toast. Here each block is a
+          node on a vertical line with its own hash as the link label, and the
+          link is drawn broken from the first block the engine could not verify.
+
+          This is the same data already on screen, arranged to show what it
+          means. The renderer is a pure function of the entries so the drawing
+          cannot disagree with the table beneath it.
+          ------------------------------------------------------------------ */}
+      {entries.length > 0 && (
+        <div className="matte-card p-5">
+          <div className="flex justify-between items-center pb-3 border-b border-line">
+            <h3 className="text-[16px] font-bold text-ink font-mono">
+              Link integrity
+            </h3>
+            <span className="text-[10px] text-ink-muted font-mono">
+              each block is bound to the hash above it
+            </span>
+          </div>
+
+          <ol className="mt-4 space-y-0">
+            {entries.map((entry, i) => {
+              const isGenesis = i === 0;
+              const brokenAt =
+                verification && !verification.valid
+                  ? verification.broken_at_seq
+                  : null;
+              // The link INTO this block is broken if this is the first block
+              // the engine flagged, or any block after it.
+              const linkBroken =
+                brokenAt !== null && !isGenesis && entry.seq >= brokenAt;
+              const last = i === entries.length - 1;
+
+              return (
+                <li key={entry.seq} className="flex gap-3">
+                  {/* The connector between this block and the one above. */}
+                  {!isGenesis && (
+                    <span
+                      aria-hidden="true"
+                      className={`w-px shrink-0 self-stretch ${
+                        linkBroken ? "bg-alert" : "bg-line-strong"
+                      }`}
+                      style={{ minHeight: 22 }}
+                    >
+                      {linkBroken && (
+                        /* A gap in the line: a link that does not hold. */
+                        <span className="block w-px h-2 bg-canvas" />
+                      )}
+                    </span>
+                  )}
+                  <div className="flex-1 min-w-0 pb-3">
+                    <div className="flex items-baseline gap-2 flex-wrap">
+                      <span
+                        className={`text-[10px] font-mono font-bold px-1.5 py-0.5 border ${
+                          linkBroken
+                            ? "bg-alert-surface text-alert-ink border-alert-line"
+                            : "bg-signal-surface text-signal-ink border-signal-line"
+                        }`}
+                      >
+                        {isGenesis ? "GENESIS" : `#${entry.seq}`}
+                      </span>
+                      <span className="text-[12px] text-ink truncate">
+                        {entry.action}
+                      </span>
+                    </div>
+                    <div className="flex items-baseline gap-2 mt-0.5 flex-wrap">
+                      <span className="text-[10px] text-ink-faint font-mono">
+                        {entry.timestamp}
+                      </span>
+                      <span className="text-[10px] text-ink-dim">
+                        {entry.actor}
+                      </span>
+                    </div>
+                    {entry.entry_hash && (
+                      <span className="block text-[10px] text-ink-muted font-mono break-all mt-0.5">
+                        {entry.entry_hash}
+                      </span>
+                    )}
+                  </div>
+                  {/* The whole hash, not the 16-character cut used in the
+                      table. This is the artefact a third party re-derives, so
+                      truncating it here defeats the purpose of the view. */}
+                  {entry.entry_hash && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        navigator.clipboard.writeText(entry.entry_hash!);
+                        onShowToast(
+                          "Hash Copied",
+                          `Full ${entry.entry_hash!.length}-character SHA-256 for block #${entry.seq} is on the clipboard.`,
+                          "info"
+                        );
+                      }}
+                      className="shrink-0 self-start px-2 py-1 min-h-11 text-[10px] font-mono text-ink-muted hover:text-ink border border-line hover:border-line-strong transition"
+                    >
+                      copy hash
+                    </button>
+                  )}
+                  {last && !linkBroken && (
+                    <span aria-hidden="true" className="w-3 shrink-0" />
+                  )}
+                </li>
+              );
+            })}
+          </ol>
+
+          <p
+            className={`text-[10px] font-mono mt-3 pt-3 border-t border-line ${
+              verification
+                ? verification.valid
+                  ? "text-signal-ink"
+                  : "text-alert-ink"
+                : "text-ink-faint"
+            }`}
+          >
+            {verification
+              ? verification.valid
+                ? `All ${verification.entry_count} links verified against the local cryptographic root.`
+                : `Link integrity fails at block #${verification.broken_at_seq}. The blocks from there down are not bound to the chain above them.`
+              : "Integrity has not been verified for this ledger. Treat the chain above as unverified."}
+          </p>
         </div>
       )}
 
@@ -258,9 +461,38 @@ export const CustodyLedgerView: React.FC<CustodyLedgerViewProps> = ({
                   </td>
                 </tr>
               ) : entries.length === 0 ? (
+                /* The empty state used to be one centred row reading "No
+                   custody entries recorded yet." — no control, no guidance.
+                   This is the analyst's primary record and it opened on a shrug,
+                   while the append form sat immediately below with nothing
+                   pointing at it. It now explains what the chain is for and
+                   takes the analyst straight to the field that starts it. */
                 <tr>
-                  <td colSpan={6} className="text-center py-8 text-ink-muted">
-                    No custody entries recorded yet.
+                  <td colSpan={6} className="py-8 px-4 text-center">
+                    <p className="text-[13px] text-ink font-semibold">
+                      This case has no custody chain yet.
+                    </p>
+                    <p className="text-[12px] text-ink-muted mt-1.5 max-w-[54ch] mx-auto leading-relaxed">
+                      Nothing has been recorded against{" "}
+                      <span className="font-mono text-ink-dim">{evidenceId}</span>
+                      , so there is no handling history to present. The chain
+                      begins with the first action recorded below as a genesis
+                      block; every entry after it is bound to the hash above it,
+                      which is what makes the record verifiable by a third party.
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        actionRef.current?.scrollIntoView({
+                          behavior: "smooth",
+                          block: "center",
+                        });
+                        actionRef.current?.focus();
+                      }}
+                      className="mt-3 px-4 py-2 min-h-11 bg-surface hover:bg-raised text-ink border border-line-strong text-[12px] font-semibold font-mono transition"
+                    >
+                      Record the first custody action
+                    </button>
                   </td>
                 </tr>
               ) : (
@@ -275,7 +507,23 @@ export const CustodyLedgerView: React.FC<CustodyLedgerViewProps> = ({
                       {entry.action}
                     </td>
                     <td className="py-3 px-3 text-ink-muted text-[10px] break-all max-w-[200px]">
-                      {entry.entry_hash ? `${entry.entry_hash.substring(0, 16)}...` : "GENESIS"}
+                      {/* Truncated for the table's column width, but now
+                          focusable and labelled with the full value: a
+                          keyboard or screen-reader user must not be the only
+                          route to the complete hash. The chain view above
+                          renders it in full with a copy control. */}
+                      {entry.entry_hash ? (
+                        <span
+                          tabIndex={0}
+                          title={entry.entry_hash}
+                          aria-label={`Full SHA-256 for block ${entry.seq}: ${entry.entry_hash}`}
+                          className="cursor-help"
+                        >
+                          {entry.entry_hash.substring(0, 16)}…
+                        </span>
+                      ) : (
+                        "GENESIS"
+                      )}
                     </td>
                     <td className="py-3 px-3 text-right">
                       <span className="px-2 py-0.5 text-[10px] font-bold bg-signal-surface text-signal-ink border border-signal-line-soft">
@@ -303,54 +551,94 @@ export const CustodyLedgerView: React.FC<CustodyLedgerViewProps> = ({
 
           <form onSubmit={handleAppend} className="mt-4 space-y-4 text-xs font-mono">
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              {/* Every control here had a <label> as a SIBLING with no htmlFor
+                  and no id on the input, so none of them had an accessible
+                  name. An analyst using a screen reader heard "edit, blank" for
+                  the field that decides who is accountable for the evidence. */}
               <div>
-                <label className="text-ink-muted block mb-1 uppercase text-[10px]">
+                <label
+                  htmlFor="custody-actor"
+                  className="text-ink-muted block mb-1 uppercase text-[10px]"
+                >
                   Actor / Investigator Identity
                 </label>
                 <input
+                  id="custody-actor"
                   type="text"
                   value={actorName}
                   onChange={(e) => setActorName(e.target.value)}
-                  className="w-full bg-input border border-line-strong p-2.5 text-ink"
+                  className="w-full bg-input border border-line-strong p-2.5 text-ink min-h-11"
                   placeholder="e.g. Lead Examiner (CERT-In)"
+                  aria-describedby="custody-actor-note"
                 />
+                {/* The field defaults to an organisation ("CERT-In Digital
+                    Forensics") while the header shows the authenticated role as
+                    `investigator` and the rail shows a different monogram. A
+                    custody record must name a person, so the mismatch is
+                    surfaced rather than assumed. */}
+                <p id="custody-actor-note" className="text-[10px] text-ink-faint mt-1 leading-relaxed">
+                  Recorded verbatim in the block. This is the identity a verifier
+                  will hold responsible for the action, so it should match the
+                  signed-in officer
+                  {authRole ? ` (signed in as ${authRole})` : ""} rather than an
+                  organisation.
+                </p>
               </div>
 
               <div>
-                <label className="text-ink-muted block mb-1 uppercase text-[10px]">
+                <label
+                  htmlFor="custody-case"
+                  className="text-ink-muted block mb-1 uppercase text-[10px]"
+                >
                   Case Identifier
                 </label>
                 <input
+                  id="custody-case"
                   type="text"
                   disabled
                   value={`${evidenceId} (Project AETHER)`}
-                  className="w-full bg-surface border border-line p-2.5 text-ink-muted cursor-not-allowed"
+                  className="w-full bg-surface border border-line p-2.5 text-ink-muted cursor-not-allowed min-h-11"
                 />
               </div>
             </div>
 
             <div>
-              <label className="text-ink-muted block mb-1 uppercase text-[10px]">
+              <label
+                htmlFor="custody-action"
+                className="text-ink-muted block mb-1 uppercase text-[10px]"
+              >
                 Forensic Action &amp; Evidentiary Findings
               </label>
               <textarea
+                id="custody-action"
+                ref={actionRef}
                 rows={3}
                 value={actionDesc}
                 onChange={(e) => setActionDesc(e.target.value)}
                 placeholder="e.g. Correlated Dread forum Bitcoin transaction to suspect VASP deposit cluster..."
                 className="w-full bg-input border border-line-strong p-2.5 text-ink resize-none font-sans"
               />
+              {/* Appending to an append-only ledger is irreversible, and this is
+                  the one irreversible action in the interface with no
+                  confirmation. It is not a modal — a dialog for a text field
+                  the analyst has just filled is worse than an explicit,
+                  informed commit control directly beside the field. */}
+              <p className="text-[10px] text-ink-faint mt-1.5 leading-relaxed">
+                Appending is <strong className="text-warn-ink">permanent</strong>.
+                A block cannot be edited or removed; a correction is a new block
+                that refers to this one.
+              </p>
             </div>
 
             <button
               type="submit"
               disabled={submitting}
-              className="px-5 py-2.5 bg-active hover:bg-info-hover text-white font-bold transition border border-line-active flex items-center gap-2"
+              className="px-5 py-2.5 min-h-11 bg-active hover:bg-info-hover text-white font-bold transition border border-line-active flex items-center gap-2"
             >
               {submitting ? (
                 <span className="inline-block w-3.5 h-3.5 border-2 border-white border-t-transparent animate-spin"></span>
               ) : (
-                <i className="fa-solid fa-plus text-xs"></i>
+                <i className="fa-solid fa-link text-xs" aria-hidden="true"></i>
               )}
               Append &amp; Recompute SHA-256 Seal
             </button>
@@ -399,8 +687,28 @@ export const CustodyLedgerView: React.FC<CustodyLedgerViewProps> = ({
             </div>
           </div>
 
-          <div className="mt-4 pt-3 border-t border-line text-[10px] font-mono text-ink-faint">
-            Chain seal verified against SQLite store.
+          {/* This line was a static "Chain seal verified against SQLite store."
+              in the Judicial Submission panel — printed unconditionally, outside
+              any state check, on the panel that tells a court this export is
+              fit to file. It asserted a verification that might never have run,
+              against a storage backend this product does not use.
+
+              It now reports the actual state, including the states that were
+              previously invisible: not yet checked, and checked-but-failed. */}
+          <div
+            className={`mt-4 pt-3 border-t border-line text-[10px] font-mono ${
+              !verification
+                ? "text-ink-faint"
+                : verification.valid
+                  ? "text-signal-ink"
+                  : "text-alert-ink"
+            }`}
+          >
+            {!verification
+              ? "Integrity has not been verified for this ledger. Verify before relying on any export below."
+              : verification.valid
+                ? `Chain seal recomputed and matched across ${verification.entry_count} block${verification.entry_count === 1 ? "" : "s"}. Root seal ${verification.seal.slice(0, 16)}…`
+                : `Chain seal does NOT match: integrity fails at block #${verification.broken_at_seq}. Exports below are not trustworthy.`}
           </div>
         </div>
       </div>

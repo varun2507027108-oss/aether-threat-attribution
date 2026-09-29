@@ -1,13 +1,14 @@
 "use client";
 
 import React, { useState } from "react";
+import type { ToastSeverity } from "@/components/Toast";
 import { Modal } from "@/components/Modal";
 import { runStylometryAnalysis, StylometryResult } from "@/lib/api";
 
 interface StylometryLabModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onShowToast: (title: string, message: string) => void;
+  onShowToast: (title: string, message: string, severity?: ToastSeverity) => void;
 }
 
 const DEFAULT_SAMPLE_A = `Listen, the vendor escrow on this market is basically broken - everyone knows it, nobody says it. I have been running the same setup for three years; no downtime, no drama, no excuses. If you want the access dump, ping me. Prices are firm; don't waste my time with lowball offers. Payment in BTC only - no exceptions, no refunds. Trust is earned, not begged for.`;
@@ -52,25 +53,80 @@ function HighlightedText({ text, shared }: { text: string; shared: Set<string> }
   );
 }
 
-function ScoreBar({ label, value, note }: { label: string; value: number | null; note: string }) {
+// `threshold` is the engine's CALIBRATED decision boundary, and the only thing
+// that makes the FPR figure meaningful. This bar used to hardcode 0.72, while
+// the engine reported 0.39 and the UI printed that 0.39 six inches away. The
+// result on screen was a green "67.7% SAME AUTHOR (high confidence)" header
+// directly above a red bar, for the same number.
+//
+// Burrows' Delta and LZW-NCD are individually inverted scales (lower is a
+// closer match for delta similarity) and are not thresholded the same way, so
+// they are shown as raw magnitudes rather than pass/fail. Only the ensemble is
+// a probability with a calibrated boundary.
+function ScoreBar({
+  label,
+  value,
+  note,
+  threshold,
+  direction = "up",
+}: {
+  label: string;
+  value: number | null;
+  note: string;
+  threshold?: number;
+  direction?: "up" | "down";
+}) {
   const pct = value === null ? 0 : Math.round(Math.min(1, Math.max(0, value)) * 100);
+  const hasThreshold = typeof threshold === "number" && direction === "up";
+  const passes = value !== null && hasThreshold ? value >= threshold : null;
+  const thresholdPct = hasThreshold ? Math.round(threshold * 100) : null;
+
   return (
     <div className="bg-surface p-3 border border-line">
       <div className="flex items-baseline justify-between">
         <span className="text-[10px] text-ink-muted uppercase">{label}</span>
-        <span className="text-[9px] text-ink-faint uppercase">{note}</span>
+        <span className="text-[10px] text-ink-faint uppercase">{note}</span>
       </div>
       {value === null ? (
-        <span className="text-xs font-bold text-warn-ink mt-1 block">not applicable</span>
+        <span className="text-[12px] font-bold text-warn-ink mt-1 block">not applicable</span>
       ) : (
         <>
-          <span className="text-base font-bold text-white mt-1 block">{(value * 100).toFixed(1)}%</span>
-          <div className="h-1.5 bg-raised mt-2">
+          <span className="text-[13px] font-bold text-ink mt-1 block">{(value * 100).toFixed(1)}%</span>
+          <div className="h-1.5 bg-raised mt-2 relative">
             <div
-              className={value >= 0.72 ? "h-full bg-info" : "h-full bg-rose-400"}
+              className={
+                passes === null
+                  ? "h-full bg-ink-faint"
+                  : passes
+                    ? "h-full bg-signal"
+                    : "h-full bg-warn"
+              }
               style={{ width: `${pct}%` }}
             ></div>
+            {/* The boundary is drawn on the bar itself, so the reader does not
+                have to hold a number from elsewhere on the screen to interpret
+                the fill. */}
+            {thresholdPct !== null && (
+              <span
+                aria-hidden="true"
+                className="absolute top-0 h-full w-px bg-ink"
+                style={{ left: `${thresholdPct}%` }}
+              ></span>
+            )}
           </div>
+          {passes !== null ? (
+            <span
+              className={`text-[10px] font-mono mt-1 block ${
+                passes ? "text-signal-ink" : "text-warn-ink"
+              }`}
+            >
+              {passes ? "above" : "below"} calibrated {thresholdPct}% threshold
+            </span>
+          ) : direction === "down" ? (
+            <span className="text-[10px] font-mono text-ink-faint mt-1 block">
+              magnitude, lower is closer
+            </span>
+          ) : null}
         </>
       )}
     </div>
@@ -159,10 +215,11 @@ export const StylometryLabModal: React.FC<StylometryLabModalProps> = ({
           </div>
           <button
             onClick={onClose}
-            className="w-8 h-8 bg-info-surface text-ink-muted flex items-center justify-center hover:bg-active hover:text-white border border-line-strong transition"
+            className="w-11 h-11 bg-info-surface text-ink-muted flex items-center justify-center hover:bg-active hover:text-ink border border-line-strong transition"
             title="Close"
+            aria-label="Close stylometry lab"
           >
-            <i className="fa-solid fa-xmark text-xs"></i>
+            <i className="fa-solid fa-xmark text-xs" aria-hidden="true"></i>
           </button>
         </div>
 
@@ -234,10 +291,10 @@ export const StylometryLabModal: React.FC<StylometryLabModalProps> = ({
                 <span className="text-[10px] text-ink-muted uppercase">
                   Ensemble Author-Profile Similarity
                 </span>
-                <div className="text-2xl font-bold text-white mt-0.5">
+                <div className="text-[30px] font-extrabold text-ink mt-0.5 tabular-nums">
                   {(result.similarity_score * 100).toFixed(1)}%
                   <span
-                    className={`text-xs font-normal ml-2 ${
+                    className={`text-[12px] font-normal ml-2 ${
                       result.similarity_score >= result.threshold ? "text-signal-ink" : "text-warn-ink"
                     }`}
                   >
@@ -246,14 +303,18 @@ export const StylometryLabModal: React.FC<StylometryLabModalProps> = ({
                 </div>
               </div>
               <div className="flex flex-col items-end gap-1">
-                <span className="px-2.5 py-1 bg-info-surface text-ink border border-line-strong text-[11px]">
+                <span className="px-2.5 py-1 bg-info-surface text-ink border border-line-strong text-[12px]">
                   Shared Tokens: {result.shared_tokens_count}
                 </span>
-              <span className="px-2.5 py-1 bg-info-surface text-ink-muted border border-line-strong text-[10px]">
-                {typeof result.threshold === "number" && typeof result.fpr_at_threshold === "number"
-                  ? `Threshold ${result.threshold} · FPR ${result.fpr_at_threshold}`
-                  : "Calibrated threshold not reported"}
-              </span>
+                {/* Printed as percentages to match the bars, which are
+                    percentages. "Threshold 0.39 · FPR 0.0467" next to a bar
+                    labelled 67.7% made the reader convert between scales to
+                    check a claim the same panel was already contradicting. */}
+                <span className="px-2.5 py-1 bg-info-surface text-ink-muted border border-line-strong text-[10px] font-mono">
+                  {typeof result.threshold === "number" && typeof result.fpr_at_threshold === "number"
+                    ? `Calibrated threshold ${(result.threshold * 100).toFixed(1)}% · false-positive rate ${(result.fpr_at_threshold * 100).toFixed(1)}%`
+                    : "Calibrated threshold not reported"}
+                </span>
             </div>
           </div>
 
@@ -283,8 +344,22 @@ export const StylometryLabModal: React.FC<StylometryLabModalProps> = ({
             */}
             {result.method_scores ? (
               <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                <ScoreBar label="Ensemble" value={result.similarity_score} note="fused" />
-                <ScoreBar label="Cosine" value={result.method_scores.cosine} note="n-gram" />
+                {/* Only the ensemble is a calibrated probability, so only the
+                    ensemble is thresholded. The three techniques are shown as
+                    magnitudes and are not marked pass/fail against a boundary
+                    that was never calibrated for them. */}
+                <ScoreBar
+                  label="Ensemble"
+                  value={result.similarity_score}
+                  note="fused"
+                  threshold={result.threshold}
+                />
+                <ScoreBar
+                  label="Cosine"
+                  value={result.method_scores.cosine}
+                  note="n-gram"
+                  direction="down"
+                />
                 <ScoreBar
                   label="Burrows' Delta"
                   value={result.method_scores.delta.similarity}
@@ -293,6 +368,7 @@ export const StylometryLabModal: React.FC<StylometryLabModalProps> = ({
                       ? `delta ${result.method_scores.delta.delta}`
                       : "gated"
                   }
+                  direction="down"
                 />
                 <ScoreBar
                   label="LZW NCD"
@@ -302,6 +378,7 @@ export const StylometryLabModal: React.FC<StylometryLabModalProps> = ({
                       ? `ncd ${result.method_scores.ncd.ncd}`
                       : "gated"
                   }
+                  direction="down"
                 />
               </div>
             ) : (

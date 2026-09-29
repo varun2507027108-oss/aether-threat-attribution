@@ -19,7 +19,7 @@ import { DossierModal } from "@/components/DossierModal";
 import { EvidenceModal } from "@/components/EvidenceModal";
 import { EngineConfigModal } from "@/components/EngineConfigModal";
 import { NewInvestigationModal } from "@/components/NewInvestigationModal";
-import { Toast, ToastData } from "@/components/Toast";
+import { Toast, ToastData, ToastSeverity } from "@/components/Toast";
 
 export default function Home() {
   const [apiOnline, setApiOnline] = useState<boolean>(false);
@@ -92,11 +92,29 @@ export default function Home() {
     }
   };
 
-  const showToast = (title: string, message: string) => {
-    setToast({ title, message, visible: true });
-    setTimeout(() => {
-      setToast((prev) => ({ ...prev, visible: false }));
-    }, 4500);
+  /**
+   * Integrity findings are no longer given a 4.5 second life. A custody seal
+   * verdict, a denied export, or a failed commit is a statement about evidence
+   * and persists until it is explicitly dismissed; a "camera reset" message
+   * does not need to interrupt anyone.
+   *
+   * The previous 4500ms auto-dismiss applied to everything, which meant a
+   * tamper notice could expire before it was read, and the toast had no live
+   * region at all, so a screen-reader user never heard any of it.
+   */
+  const showToast = (
+    title: string,
+    message: string,
+    severity: ToastSeverity = "info",
+  ) => {
+    setToast({ title, message, visible: true, severity });
+    const timeoutMs =
+      severity === "critical" || severity === "warning" ? 0 : 5000;
+    if (timeoutMs > 0) {
+      setTimeout(() => {
+        setToast((prev) => ({ ...prev, visible: false }));
+      }, timeoutMs);
+    }
   };
 
   /*
