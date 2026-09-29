@@ -146,4 +146,11 @@ class InvestigationJob(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, onupdate=_utcnow)
 
     case: Mapped[Case | None] = relationship(back_populates="jobs")
+class InvestigationSnapshot(Base):
+    """Stored investigation result so case views read persisted output instead of re-running the pipeline."""
+    __tablename__ = "investigation_snapshots"
 
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    case_id: Mapped[int] = mapped_column(ForeignKey("cases.id", ondelete="CASCADE"), unique=True, index=True)
+    payload: Mapped[dict] = mapped_column(JSON, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
