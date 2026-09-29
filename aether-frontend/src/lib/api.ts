@@ -170,10 +170,19 @@ export interface StylometryResult {
   similarity_score: number;
   engine: string;
   threshold: number;
-  fpr_at_threshold: number;
-  confidence_tier: string;
-  legacy_cosine_composite: number;
-  ensemble: {
+  fpr_at_threshold?: number;
+  confidence_tier?: string;
+  legacy_cosine_composite?: number;
+  /*
+   * Optional by contract, not by accident.
+   *
+   * `ensemble` and `fpr_at_threshold` arrived in phase 9. A backend deployed
+   * before that -- a long-running uvicorn that was not restarted after the
+   * upgrade, or an older container -- returns the phase-8 payload with no
+   * `ensemble` key at all, and the console crashed on it. The same is true of
+   * the module-failure path, which legitimately has no ensemble to report.
+   */
+  ensemble?: {
     score: number;
     methods_used: string[];
     weights_used: Record<string, number>;

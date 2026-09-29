@@ -473,15 +473,28 @@ export const BentoGrid: React.FC<BentoGridProps> = ({
                   <span className="text-lg font-bold text-ink font-mono">
                     {stylometryScore ?? "—"}
                   </span>
-                  <span className="text-[11px] text-ink-dim font-mono">
-                    {stylometry
-                      ? `${stylometry.ensemble.methods_used.length} method${
-                          stylometry.ensemble.methods_used.length === 1 ? "" : "s"
-                        }${stylometry.ensemble.degraded ? " · degraded" : ""} · FPR ${(
-                          stylometry.fpr_at_threshold * 100
-                        ).toFixed(1)}%`
-                      : "no comparison loaded"}
-                  </span>
+                  {/*
+                    Every field below is optional: the ensemble landed in phase 9
+                    and a pre-phase-9 backend omits it entirely. Reading it
+                    unguarded crashed the whole console on a white screen, which
+                    is the worst possible failure for a case already in
+                    progress. A shape we did not expect now degrades to a
+                    statement of what is missing.
+                  */}
+                  {stylometry?.ensemble ? (
+                    <span className="text-[11px] text-ink-dim font-mono">
+                      {stylometry.ensemble.methods_used.length} method
+                      {stylometry.ensemble.methods_used.length === 1 ? "" : "s"}
+                      {stylometry.ensemble.degraded ? " · degraded" : ""}
+                      {typeof stylometry.fpr_at_threshold === "number"
+                        ? ` · FPR ${(stylometry.fpr_at_threshold * 100).toFixed(1)}%`
+                        : ""}
+                    </span>
+                  ) : (
+                    <span className="text-[11px] text-warn-ink font-mono">
+                      ensemble not reported
+                    </span>
+                  )}
                 </span>
               </button>
 

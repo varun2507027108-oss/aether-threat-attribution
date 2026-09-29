@@ -249,43 +249,67 @@ export const StylometryLabModal: React.FC<StylometryLabModalProps> = ({
                 <span className="px-2.5 py-1 bg-info-surface text-ink border border-line-strong text-[11px]">
                   Shared Tokens: {result.shared_tokens_count}
                 </span>
-                <span className="px-2.5 py-1 bg-info-surface text-ink-muted border border-line-strong text-[10px]">
-                  Threshold {result.threshold} · FPR {result.fpr_at_threshold}
-                </span>
-              </div>
+              <span className="px-2.5 py-1 bg-info-surface text-ink-muted border border-line-strong text-[10px]">
+                {typeof result.threshold === "number" && typeof result.fpr_at_threshold === "number"
+                  ? `Threshold ${result.threshold} · FPR ${result.fpr_at_threshold}`
+                  : "Calibrated threshold not reported"}
+              </span>
             </div>
+          </div>
 
-            {result.ensemble.degraded && (
+          {/*
+            `ensemble` is optional: it arrived in phase 9, so a pre-phase-9
+            backend and the module-failure path both omit it. This read was
+            unguarded and took down the dialog on a case already in progress.
+          */}
+          {result.ensemble?.degraded && (
+            <div className="bg-warn-surface/40 border border-warn-line px-3 py-2 text-[11px] text-warn-ink">
+              Only {result.ensemble.methods_used.join(", ") || "no methods"} contributed to this
+              score. The other methods were skipped because the samples are too short for them to
+              be meaningful; a degraded score is not the same claim as a full one.
+            </div>
+          )}
+          {!result.ensemble && (
+            <div className="bg-warn-surface/40 border border-warn-line px-3 py-2 text-[11px] text-warn-ink">
+              This response carries no ensemble block, so the methods behind the score cannot be
+              named. Treat the figure as indicative until a backend that reports it is running.
+            </div>
+          )}
+
+            {/*
+              Per-method bars need `method_scores`, which also arrived in phase
+              9. The local fallback supplies it; a live response from an older
+              backend does not, and these reads were unguarded.
+            */}
+            {result.method_scores ? (
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                <ScoreBar label="Ensemble" value={result.similarity_score} note="fused" />
+                <ScoreBar label="Cosine" value={result.method_scores.cosine} note="n-gram" />
+                <ScoreBar
+                  label="Burrows' Delta"
+                  value={result.method_scores.delta.similarity}
+                  note={
+                    result.method_scores.delta.delta !== null
+                      ? `delta ${result.method_scores.delta.delta}`
+                      : "gated"
+                  }
+                />
+                <ScoreBar
+                  label="LZW NCD"
+                  value={result.method_scores.ncd.similarity}
+                  note={
+                    result.method_scores.ncd.ncd !== null
+                      ? `ncd ${result.method_scores.ncd.ncd}`
+                      : "gated"
+                  }
+                />
+              </div>
+            ) : (
               <div className="bg-warn-surface/40 border border-warn-line px-3 py-2 text-[11px] text-warn-ink">
-                Only {result.ensemble.methods_used.join(", ") || "no methods"} contributed to this score.
-                The other methods were skipped because the samples are too short for them to be
-                meaningful; a degraded score is not the same claim as a full one.
+                This response carries no per-method breakdown, so the individual technique scores
+                cannot be shown. The headline figure alone should not be relied on.
               </div>
             )}
-
-            {/* Per-method score bars */}
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-              <ScoreBar label="Ensemble" value={result.similarity_score} note="fused" />
-              <ScoreBar label="Cosine" value={result.method_scores.cosine} note="n-gram" />
-              <ScoreBar
-                label="Burrows' Delta"
-                value={result.method_scores.delta.similarity}
-                note={
-                  result.method_scores.delta.delta !== null
-                    ? `delta ${result.method_scores.delta.delta}`
-                    : "gated"
-                }
-              />
-              <ScoreBar
-                label="LZW NCD"
-                value={result.method_scores.ncd.similarity}
-                note={
-                  result.method_scores.ncd.ncd !== null
-                    ? `ncd ${result.method_scores.ncd.ncd}`
-                    : "gated"
-                }
-              />
-            </div>
 
             {/* Side-by-side diff with shared spans highlighted */}
             <div>

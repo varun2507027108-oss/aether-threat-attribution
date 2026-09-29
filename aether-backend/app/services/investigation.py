@@ -1086,11 +1086,52 @@ async def run_full_investigation_async(
         case.btc_root = res_map["crypto"].data.get("btc_root", "")
 
     # Extract module data for scoring and graph building
-    mmh3_val = res_map["favicon"].data.get("mmh3_val", -129482710) if res_map.get("favicon") and res_map["favicon"].success else -129482710
-    stylo_result = res_map["stylometry"].data.get("stylo_result", {"similarity_score": 0.0, "breakdown": {}}) if res_map.get("stylometry") and res_map["stylometry"].success else {"similarity_score": 0.0, "breakdown": {}}
+    #
+    # A module that failed must not be reported as a measurement of zero. The
+    # old fallback was `{"similarity_score": 0.0, "breakdown": {}}`, which is
+    # indistinguishable on the wire from "measured, found entirely dissimilar" --
+    # a failed stylometry run read as strong negative evidence. It also threw
+    # away the error the pipeline had already captured, so the console could
+    # only crash on the missing fields. The unavailable shape names itself.
+    _stylo_ok = bool(res_map.get("stylometry") and res_map["stylometry"].success)
+    _stylo_err = (
+        "" if _stylo_ok else (res_map.get("stylometry").error if res_map.get("stylometry") else "module did not run")
+    )
+    if _stylo_ok:
+        stylo_result = res_map["stylometry"].data.get("stylo_result") or {}
+        if not stylo_result.get("method_scores"):
+            _stylo_ok = False
+            _stylo_err = "stylometry module returned no method scores"
+    if not _stylo_ok:
+        stylo_result = {
+            "available": False,
+            "similarity_score": None,
+            "breakdown": {},
+            "confidence_tier": "NOT MEASURED",
+            "evidentiary_caveat": (
+                f"The stylometry module did not complete ({_stylo_err or 'unknown error'}), so no "
+                "author-similarity figure exists for this case. This is an absence of measurement, "
+                "not a measurement of zero, and it carries no evidentiary weight in either direction."
+            ),
+        }
+    else:
+        stylo_result = dict(stylo_result)
+        stylo_result["available"] = True
     pgp_norm = res_map["pgp"].data.get("pgp_norm", {"valid": False, "key_id_short": "UNKNOWN"}) if res_map.get("pgp") and res_map["pgp"].success else {"valid": False, "key_id_short": "UNKNOWN"}
     btc_cluster_res = res_map["crypto"].data.get("btc_cluster_res", {"cluster_count": 0, "clusters": [], "peel_hops": []}) if res_map.get("crypto") and res_map["crypto"].success else {"cluster_count": 0, "clusters": [], "peel_hops": []}
-    btc_root = res_map["crypto"].data.get("btc_root", payload.known_btc or "1A1zP1eP5QGefi2DMPTfTL5SLmv7DivfNa") if res_map.get("crypto") and res_map["crypto"].success else "1A1zP1eP5QGefi2DMPTfTL5SLmv7DivfNa"
+    btc_root = res_map["crypto"].data.get("btc_root", payload.known_btc or "") if res_map.get("crypto") and res_map["crypto"].success else (payload.known_btc or "")
+
+    # The favicon hash is the mock provider's deterministic fixture value
+    # (-129482710) when the module succeeds -- that is legitimate demo data and
+    # the evidence row carries its provenance. What is not legitimate is
+    # substituting it when the module *failed*, which recorded a hash nobody
+    # measured and then built a graph node, two correlation edges and an
+    # indicator out of it. A failed module now contributes no hash at all.
+    mmh3_val = (
+        res_map["favicon"].data.get("mmh3_val")
+        if res_map.get("favicon") and res_map["favicon"].success
+        else None
+    )
     diurnal_res = res_map["diurnal"].data.get("diurnal_res", {"estimated_timezone": {"formatted_offset": "UTC+00:00", "candidate_regions": ["Unknown"]}, "sleep_trough": {"start_utc": 0, "end_utc": 0}, "total_events": 0}) if res_map.get("diurnal") and res_map["diurnal"].success else {"estimated_timezone": {"formatted_offset": "UTC+00:00", "candidate_regions": ["Unknown"]}, "sleep_trough": {"start_utc": 0, "end_utc": 0}, "total_events": 0}
     tz_info = diurnal_res["estimated_timezone"]
 
@@ -1102,14 +1143,26 @@ async def run_full_investigation_async(
         (actor_name, "ShadowByte", "USES_ALIAS", 0.93, 0, "Stylometry linguistic similarity link"),
         (actor_name, clean_target, "OPERATES_SERVICE", 0.95, 1, "Target administrative control"),
         (clean_target, origin_ip, "ORIGIN_EXPOSURE", 0.96, 1, "Favicon mmh3 + Apache /server-status leak"),
-        (origin_ip, f"mmh3: {mmh3_val}", "FAVICON_MATCH", 0.98, 1, "Shodan favicon facet match"),
-        (clean_target, f"mmh3: {mmh3_val}", "SERVES_ICON", 1.0, 1, "Root favicon endpoint"),
         (origin_ip, asn_org, "ROUTED_THROUGH", 1.0, 1, "BGP Autonomous System route"),
         (actor_name, pgp_norm.get("key_id_short", "4D9E27BC"), "DECLARED_KEY", 1.0, 1, "Deterministic PGP public key"),
-        (actor_name, btc_root[:12] + "...", "EXTORTION_ROOT", 0.88, 1, "Bitcoin multi-input peel cluster"),
         (actor_name, tz_info["formatted_offset"], "OPERATIONAL_TIMEZONE", 0.84, 0, "Circadian nocturnal sleep trough"),
         (clean_target, "Tor HS Gateway", "TLS_STACK", 0.94, 1, "JARM fingerprint matches Tor gateway"),
     ]
+    # Correlations that assert a specific measured value only exist when that
+    # value was measured. Previously these two rows were emitted unconditionally,
+    # so a failed favicon or crypto module still produced "FAVICON_MATCH" and
+    # "EXTORTION_ROOT" edges pointing at a fabricated identifier.
+    if mmh3_val is not None:
+        corr_specs.append(
+            (origin_ip, f"mmh3: {mmh3_val}", "FAVICON_MATCH", 0.98, 1, "Shodan favicon facet match")
+        )
+        corr_specs.append(
+            (clean_target, f"mmh3: {mmh3_val}", "SERVES_ICON", 1.0, 1, "Root favicon endpoint")
+        )
+    if btc_root:
+        corr_specs.append(
+            (actor_name, btc_root[:12] + "...", "EXTORTION_ROOT", 0.88, 1, "Bitcoin multi-input peel cluster")
+        )
 
     for src, tgt, rtype, weight, det, notes in corr_specs:
         c = EvidenceCorrelation(
@@ -1136,14 +1189,20 @@ async def run_full_investigation_async(
         "pos": [0, 0, 0],
     })
 
-    alias_node_id = "alias-shadowbyte"
-    graph.add_node(alias_node_id, "ShadowByte", "threat-actor", {
-        "subtext": "Access Broker Alias",
-        "confidence": f"{stylo_result['similarity_score'] * 100:.1f}%",
-        "color": "#fb7185",
-        "pos": [-46, 28, 22],
-    })
-    graph.add_edge(actor_node_id, alias_node_id, "STYLOMETRY_SIMILAR", weight=stylo_result["similarity_score"], deterministic=False)
+    # The alias node exists only if stylometry actually measured something. A
+    # failed module used to add this node with confidence "0.0%" and an edge
+    # weighted 0.0 -- an unattributed actor wired into the graph by a
+    # measurement that never happened.
+    if _stylo_ok and isinstance(stylo_result.get("similarity_score"), (int, float)):
+        _sim = float(stylo_result["similarity_score"])
+        alias_node_id = "alias-shadowbyte"
+        graph.add_node(alias_node_id, "ShadowByte", "threat-actor", {
+            "subtext": "Access Broker Alias",
+            "confidence": f"{_sim * 100:.1f}%",
+            "color": "#fb7185",
+            "pos": [-46, 28, 22],
+        })
+        graph.add_edge(actor_node_id, alias_node_id, "STYLOMETRY_SIMILAR", weight=_sim, deterministic=False)
 
     target_node_id = "target-node"
     graph.add_node(target_node_id, clean_target, "darknet" if target_type == "onion" else "domain", {
@@ -1164,7 +1223,7 @@ async def run_full_investigation_async(
         })
         graph.add_edge(target_node_id, ip_node_id, "ORIGIN_EXPOSURE", weight=0.96, deterministic=True)
 
-        if res_map.get("favicon") and res_map["favicon"].success:
+        if mmh3_val is not None:
             hash_node_id = f"hash-{mmh3_val}"
             graph.add_node(hash_node_id, f"mmh3: {mmh3_val}", "hash", {
                 "subtext": "Shodan Favicon Hash",
@@ -1208,7 +1267,7 @@ async def run_full_investigation_async(
     # lower than a full one instead of being scored on absent data.
     attribution_indicators: List[ScoringEvidence] = []
 
-    if res_map.get("favicon") and res_map["favicon"].success:
+    if mmh3_val is not None:
         attribution_indicators.append(
             make_evidence(
                 "favicon_match",
@@ -1243,7 +1302,7 @@ async def run_full_investigation_async(
         attribution_indicators.append(
             make_evidence("btc_cluster_match", 0.88, detail="Bitcoin peel-chain wallet clustering.")
         )
-    if res_map.get("stylometry") and res_map["stylometry"].success:
+    if _stylo_ok and isinstance(stylo_result.get("similarity_score"), (int, float)):
         attribution_indicators.append(
             make_evidence(
                 "stylometry_similarity",
